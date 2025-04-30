@@ -1,0 +1,35 @@
+buy_amounts_pct:
+- 0.08
+- 0.14
+- 0.28
+buy_spreads:
+- 0.005
+- 0.01
+- 0.03
+candles_config: []
+connector_name: binance_perpetual
+controller_name: pmm_simple
+controller_type: market_making
+cooldown_time: 2700
+executor_refresh_time: 600
+id: fartcoin-usdt_0.2
+leverage: 15
+manual_kill_switch: false
+position_mode: ONEWAY
+sell_amounts_pct:
+- 0.08
+- 0.14
+- 0.28
+sell_spreads:
+- 0.005
+- 0.01
+- 0.03
+stop_loss: 0.04
+take_profit: 0.03
+take_profit_order_type: 2
+time_limit: 86400
+total_amount_quote: 150
+trading_pair: FARTCOIN-USDT
+trailing_stop:
+  activation_price: 0.02
+  trailing_delta: 0.003
