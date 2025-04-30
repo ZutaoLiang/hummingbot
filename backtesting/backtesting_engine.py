@@ -58,12 +58,13 @@ class BacktestingResult:
         trailing_stop = results["close_types"].get("TRAILING_STOP", 0)
         early_stop = results["close_types"].get("EARLY_STOP", 0)
         return f"""
-Start time: {self.start_date} => End time:{self.end_date}
+=====================================================================================================================================    
+Backtest result From: {self.start_date} to: {self.end_date}
 Net PNL: ${net_pnl_quote:.2f} ({net_pnl_pct*100:.2f}%) | Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct*100:.2f}%)
 Total Volume ($): {total_volume:.2f} | Sharpe Ratio: {sharpe_ratio:.2f} | Profit Factor: {profit_factor:.2f}
-Total Executors: {total_executors} | Accuracy Long: {accuracy_long:.2f} | Accuracy Short: {accuracy_short:.2f}
-Close Types: Take Profit: {take_profit} | Stop Loss: {stop_loss} | Time Limit: {time_limit} |
-             Trailing Stop: {trailing_stop} | Early Stop: {early_stop}
+Total Executors: {total_executors} | Accuracy Long: {accuracy_long:.2%} | Accuracy Short: {accuracy_short:.2%}
+Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop Loss: {stop_loss} | Time Limit: {time_limit} | Early Stop: {early_stop}
+=====================================================================================================================================
 """
 
     @property
@@ -186,5 +187,5 @@ class BacktestingEngine(BacktestingEngineBase):
         
         backtesting_result = BacktestingResult(result, controller_config, start_date, end_date)
         
-        print(backtesting_result.get_results_summary())
         _logger.info(backtesting_result.get_results_summary())
+        print(backtesting_result.get_results_summary())
