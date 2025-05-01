@@ -1,13 +1,8 @@
 import os
 import sys
-current_file_path = os.path.abspath(__file__)
-current_dir = os.path.dirname(current_file_path)
-root_path = os.path.join(current_dir, '../../hummingbot/')
-sys.path.append(root_path)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(current_dir, '..'))
 
-
-import logging as _logging
-_logger = _logging.getLogger(__name__)
 import warnings
 warnings.filterwarnings("ignore")
 from decimal import Decimal
@@ -57,9 +52,10 @@ class BacktestingResult:
         time_limit = results["close_types"].get("TIME_LIMIT", 0)
         trailing_stop = results["close_types"].get("TRAILING_STOP", 0)
         early_stop = results["close_types"].get("EARLY_STOP", 0)
+        trading_pair = self.controller_config.dict().get('trading_pair')
         return f"""
 =====================================================================================================================================    
-Backtest result From: {self.start_date} to: {self.end_date}
+Backtest result for {trading_pair} From: {self.start_date} to: {self.end_date}
 Net PNL: ${net_pnl_quote:.2f} ({net_pnl_pct*100:.2f}%) | Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct*100:.2f}%)
 Total Volume ($): {total_volume:.2f} | Sharpe Ratio: {sharpe_ratio:.2f} | Profit Factor: {profit_factor:.2f}
 Total Executors: {total_executors} | Accuracy Long: {accuracy_long:.2%} | Accuracy Short: {accuracy_short:.2%}
@@ -74,22 +70,24 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
         return executors_df
 
     def _get_bt_candlestick_trace(self):
-        self.processed_data.index = pd.to_datetime(self.processed_data.timestamp, unit='s')
+        self.processed_data.index = pd.to_datetime(self.processed_data.timestamp, unit='s') + pd.Timedelta(hours=8)
         return go.Scatter(x=self.processed_data.index,
                           y=self.processed_data['close'],
                           mode='lines',
-                          line=dict(color="blue"),
+                          line=dict(color='#6A8AFF', width=2),
                           )
 
     @staticmethod
-    def _get_pnl_trace(executors, line_style: str = "dash"):
+    def _get_pnl_trace(executors, line_style: str = "solid"):
         pnl = [e.net_pnl_quote for e in executors]
         cum_pnl = np.cumsum(pnl)
         return go.Scatter(
-            x=pd.to_datetime([e.close_timestamp for e in executors], unit="s"),
+            x=pd.to_datetime([e.close_timestamp for e in executors], unit="s") + pd.Timedelta(hours=8),
             y=cum_pnl,
             mode='lines',
             line=dict(color='gold', width=2, dash=line_style if line_style == "dash" else None),
+            fill='tonexty',
+            fillcolor='rgba(255, 165, 0, 0.2)',
             name='Cumulative PNL'
         )
 
@@ -99,7 +97,7 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
             "template": "plotly_dark",
             "plot_bgcolor": 'rgba(0, 0, 0, 0)',  # Transparent background
             "paper_bgcolor": 'rgba(0, 0, 0, 0.1)',  # Lighter shade for the paper
-            "font": {"color": 'white', "size": 12},  # Consistent font color and size
+            "font": {"color": 'white', "size": 15},  # Consistent font color and size
             "height": height,
             "width": width,
             "margin": {"l": 20, "r": 20, "t": 50, "b": 20},
@@ -112,11 +110,11 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
         return layout
 
     @staticmethod
-    def _add_executors_trace(fig, executors, row=1, col=1, line_style="dash"):
+    def _add_executors_trace(fig, executors, row=1, col=1, line_style="solid"):
         for executor in executors:
-            entry_time = pd.to_datetime(executor.timestamp, unit='s')
+            entry_time = pd.to_datetime(executor.timestamp, unit='s') + pd.Timedelta(hours=8)
             entry_price = executor.custom_info["current_position_average_price"]
-            exit_time = pd.to_datetime(executor.close_timestamp, unit='s')
+            exit_time = pd.to_datetime(executor.close_timestamp, unit='s') + pd.Timedelta(hours=8)
             exit_price = executor.custom_info["close_price"]
             name = "Buy Executor" if executor.config.side == TradeType.BUY else "Sell Executor"
 
@@ -129,14 +127,14 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
                 if executor.net_pnl_quote > Decimal(0):
                     fig.add_trace(go.Scatter(x=[entry_time, exit_time], y=[entry_price, exit_price], mode='lines',
                                              showlegend=False,
-                                             line=dict(color='green', width=2,
+                                             line=dict(color='green', width=3,
                                                        dash=line_style if line_style == "dash" else None), name=name),
                                   row=row,
                                   col=col)
                 else:
                     fig.add_trace(go.Scatter(x=[entry_time, exit_time], y=[entry_price, exit_price], mode='lines',
                                              showlegend=False,
-                                             line=dict(color='red', width=2,
+                                             line=dict(color='red', width=3,
                                                        dash=line_style if line_style == "dash" else None), name=name),
                                   row=row, col=col)
 
@@ -176,9 +174,13 @@ class BacktestingEngine(BacktestingEngineBase):
         super().__init__()
         
     def run_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, backtest_resolution: str = '3m', trade_cost: float = 0.0005):
-        asyncio.run(self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost))
+        try:
+            __IPYTHON__
+            self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost)
+        except:
+            asyncio.run(self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost))
     
-    async def async_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, backtest_resolution: str, trade_cost: float):
+    async def async_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, backtest_resolution: str = '3m', trade_cost: float = 0.0005):
         controller_config = self.get_controller_config_instance_from_yml(controllers_conf_dir_path=config_dir, config_path=config_path)
         start = int(start_date.timestamp())
         end = int(end_date.timestamp())
@@ -186,6 +188,7 @@ class BacktestingEngine(BacktestingEngineBase):
         result = await self.run_backtesting(controller_config, start, end, backtest_resolution, trade_cost)
         
         backtesting_result = BacktestingResult(result, controller_config, start_date, end_date)
-        
-        _logger.info(backtesting_result.get_results_summary())
         print(backtesting_result.get_results_summary())
+        
+        return backtesting_result
+        

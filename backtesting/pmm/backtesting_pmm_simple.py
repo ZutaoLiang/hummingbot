@@ -1,16 +1,13 @@
 import os
 import sys
 
-current_file_path = os.path.abspath(__file__)
-current_dir = os.path.dirname(current_file_path)
-root_path = os.path.join(current_dir, '../../../hummingbot/')
-sys.path.append(root_path)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(current_dir, '../..'))
 
 from backtesting import backtesting_engine
 
 from datetime import datetime
 
 if __name__ == '__main__':
-    backtesting_engine.BacktestingEngine().run_backtest(current_dir, 'backtesting_pmm_simple_1.yml', 
-                                                        datetime(2025, 4, 29), datetime(2025, 4, 30))
-    
+    engine = backtesting_engine.BacktestingEngine()
+    engine.run_backtest(current_dir, 'backtesting_pmm_simple_2.yml', datetime(2025, 4, 29), datetime(2025, 5, 1), '1m')
