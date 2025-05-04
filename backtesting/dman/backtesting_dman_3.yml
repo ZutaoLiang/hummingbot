@@ -1,0 +1,45 @@
+buy_amounts_pct:
+- 0.1
+- 0.2
+- 0.2
+buy_spreads:
+- 0.01
+- 0.015
+- 0.02
+sell_amounts_pct:
+- 0.1
+- 0.2
+- 0.2
+sell_spreads:
+- 0.01
+- 0.015
+- 0.02
+candles_config: []
+connector_name: binance_perpetual
+controller_name: dman_maker_v2
+controller_type: market_making
+cooldown_time: 3600
+executor_refresh_time: 900
+id: voxel-usdt-0.2
+leverage: 15
+manual_kill_switch: false
+position_mode: ONEWAY
+stop_loss: 0.025
+take_profit: 0.04
+time_limit: 86400
+total_amount_quote: 150
+trading_pair: VOXEL-USDT
+trailing_stop:
+  activation_price: 0.018
+  trailing_delta: 0.003
+top_executor_refresh_time: 900
+executor_activation_bounds:
+- 0.001
+dca_amounts:
+- 0.2
+- 0.5
+- 0.3
+dca_spreads:
+- 0.005
+- 0.01
+- 0.02
