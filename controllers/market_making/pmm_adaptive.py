@@ -5,6 +5,7 @@ import pandas_ta as ta
 from pydantic import Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
 
+from hummingbot.core.data_type.common import OrderType, PositionMode, PriceType, TradeType
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.strategy_v2.controllers.market_making_controller_base import (
     MarketMakingControllerBase,
@@ -77,7 +78,7 @@ class PMMAdaptiveController(MarketMakingControllerBase):
         self.processed_data = {
             "reference_price": Decimal(candles["reference_price"].iloc[-1]),
             "spread_multiplier": Decimal(candles["spread_multiplier"].iloc[-1]),
-            "features": candles
+            # "features": candles
         }
         
         # print(self.processed_data)
