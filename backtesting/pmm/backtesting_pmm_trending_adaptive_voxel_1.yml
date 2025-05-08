@@ -28,12 +28,12 @@ stop_loss: 0.025
 take_profit: 0.04
 take_profit_order_type: 2
 time_limit: 86400
-total_amount_quote: 80
+total_amount_quote: 90
 trading_pair: VOXEL-USDT
 trailing_stop:
   activation_price: 0.018
   trailing_delta: 0.003
 update_interval: 60
 candle_interval: 15m
-cci_length: 21
+cci_length: 30
 natr_length: 14
