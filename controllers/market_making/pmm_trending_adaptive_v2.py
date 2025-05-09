@@ -39,24 +39,27 @@ class PMMTrendingAdaptiveV2ControllerConfig(MarketMakingControllerConfigBase):
         json_schema_extra={
             "prompt": "Enter the candle interval (e.g., 1m, 5m, 1h, 1d): ",
             "prompt_on_new": True})
+    sma_short_length: int = Field(
+        default=10,
+        json_schema_extra={"prompt": "Enter the SMA short length(10): ", "prompt_on_new": True})
     sma_length: int = Field(
         default=30,
-        json_schema_extra={"prompt": "Enter the SMA length: ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the SMA length(30): ", "prompt_on_new": True})
     cci_length: int = Field(
         default=30,
-        json_schema_extra={"prompt": "Enter the CCI length: ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the CCI length(30): ", "prompt_on_new": True})
     cci_threshold: int = Field(
         default=60,
-        json_schema_extra={"prompt": "Enter the CCI threshold: ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the CCI threshold(60): ", "prompt_on_new": True})
     natr_length: int = Field(
         default=14,
-        json_schema_extra={"prompt": "Enter the NATR length: ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the NATR length(14): ", "prompt_on_new": True})
     widen_spread_multiplier: float = Field(
         default=3,
-        json_schema_extra={"prompt": "Enter the widen spread multiplier: ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the widen spread multiplier(3): ", "prompt_on_new": True})
     narrow_spread_multiplier: float = Field(
-        default=0.5,
-        json_schema_extra={"prompt": "Enter the narrow spread multiplier: ", "prompt_on_new": True})
+        default=0.6,
+        json_schema_extra={"prompt": "Enter the narrow spread multiplier(0.5): ", "prompt_on_new": True})
 
 
 class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
@@ -81,18 +84,32 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
                                                            trading_pair=self.config.trading_pair,
                                                            interval=self.config.candle_interval,
                                                            max_records=self.max_records)
+        sma_short = ta.sma(candles["close"], length=self.config.sma_short_length, talib=False)
         sma = ta.sma(candles["close"], length=self.config.sma_length, talib=False)
         cci = ta.cci(candles["high"], candles["low"], candles["close"], length=self.config.cci_length, talib=False)
         natr = ta.natr(candles["high"], candles["low"], candles["close"], length=self.config.natr_length, scalar=1, talib=False)
         # adx = ta.adx(candles["high"], candles["low"], candles["close"], length=self.config.adx_length)
         
+        candle_close = candles["close"].iloc[-1]
+        candle_sma_short = sma_short.iloc[-1]
+        candle_sma = sma.iloc[-1]
+        candle_cci = cci.iloc[-1]
+        
+        trend = ""
+        if candle_close > candle_sma_short and candle_close > candle_sma and candle_cci > self.config.cci_threshold:
+            trend = "up"
+            self.logger().info(f"Up trend => candle_close:{candle_close:.5f} > candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
+                               f"candle_cci:{candle_cci:.1f} > threshold:{self.config.cci_threshold:.1f}")
+        elif candle_close < candle_sma_short and candle_close < candle_sma and candle_cci < -self.config.cci_threshold:
+            trend = "down"
+            self.logger().info(f"Down trend => candle_close:{candle_close:.5f} < candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
+                               f"candle_cci:{candle_cci:.1f} < threshold:{-self.config.cci_threshold:.1f}")
+        
         reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
         self.processed_data = {
             "reference_price": Decimal(reference_price),
             "natr": Decimal(natr.iloc[-1]),
-            "candle_close": candles["close"].iloc[-1],
-            "candle_sma": sma.iloc[-1],
-            "candle_cci": cci.iloc[-1]
+            "trend": trend
         }
 
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
@@ -106,38 +123,25 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
         base_spread_multiplier = Decimal(self.processed_data["natr"]) / 2
         spread_in_pct = Decimal(spreads[int(level)]) * base_spread_multiplier
         
-        candle_close = self.processed_data["candle_close"]
-        candle_sma = self.processed_data["candle_sma"]
-        candle_cci = self.processed_data["candle_cci"]
+        trend = self.processed_data["trend"]
         
-        if candle_close < candle_sma and candle_cci < -self.config.cci_threshold:   # down trend
-            msg = ""
-            if trade_type == TradeType.BUY:
-                spread_in_pct *= Decimal(self.config.widen_spread_multiplier)
-                msg = "Widen"
-            elif trade_type == TradeType.SELL:
-                spread_in_pct *= Decimal(self.config.narrow_spread_multiplier)
-                msg = "Narrow"
-                
-            msg = f"{msg} {level_id} spread to {spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}, " \
-                    f"candle_close:{candle_close:.5f}, candle_sma:{candle_sma:.5f}, candle_cci:{candle_cci:.1f}"
-            self.logger().info(msg)
-        elif candle_close > candle_sma and candle_cci > self.config.cci_threshold:  # up trend
-            msg = ""
+        if trend == "up":
             if trade_type == TradeType.BUY:
                 spread_in_pct *= Decimal(self.config.narrow_spread_multiplier)
-                msg = "Narrow"
+                self.logger().info(f"Up trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
             elif trade_type == TradeType.SELL:
                 spread_in_pct *= Decimal(self.config.widen_spread_multiplier)
-                msg = "Widen"
-                
-            msg = f"{msg} {level_id} spread to {spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}, " \
-                    f"candle_close:{candle_close:.5f}, candle_sma:{candle_sma:.5f}, candle_cci:{candle_cci:.1f}"
-            self.logger().info(msg)
+                self.logger().info(f"Up trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+        elif trend == "down":
+            if trade_type == TradeType.BUY:
+                spread_in_pct *= Decimal(self.config.widen_spread_multiplier)
+                self.logger().info(f"Down trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+            elif trade_type == TradeType.SELL:
+                spread_in_pct *= Decimal(self.config.narrow_spread_multiplier)
+                self.logger().info(f"Down trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
         
         side_multiplier = Decimal("-1") if trade_type == TradeType.BUY else Decimal("1")
         order_price = reference_price * (1 + side_multiplier * spread_in_pct)
-        # print(f"order_price:{order_price}, spread_in_pct:{spread_in_pct:.2%}, spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}, candle_close:{candle_close:.5f}, candle_sma:{candle_sma:.5f}, candle_cci:{candle_cci:.1f}")
         if order_price <= 0:
             return 0, 0
         
