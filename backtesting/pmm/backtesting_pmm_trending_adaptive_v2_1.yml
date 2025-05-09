@@ -38,7 +38,7 @@ candle_interval: 15m
 sma_short_length: 10
 sma_length: 30
 cci_length: 30
-cci_threshold: 60
+cci_threshold: 75
 natr_length: 14
 widen_spread_multiplier: 3
 narrow_spread_multiplier: 0.6
