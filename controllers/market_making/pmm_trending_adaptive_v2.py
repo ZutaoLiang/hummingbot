@@ -51,9 +51,12 @@ class PMMTrendingAdaptiveV2ControllerConfig(MarketMakingControllerConfigBase):
     natr_length: int = Field(
         default=14,
         json_schema_extra={"prompt": "Enter the NATR length: ", "prompt_on_new": True})
-    adaptive_spread_multiplier: float = Field(
-        default=2,
-        json_schema_extra={"prompt": "Enter the NATR length: ", "prompt_on_new": True})
+    widen_spread_multiplier: float = Field(
+        default=3,
+        json_schema_extra={"prompt": "Enter the widen spread multiplier: ", "prompt_on_new": True})
+    narrow_spread_multiplier: float = Field(
+        default=0.5,
+        json_schema_extra={"prompt": "Enter the narrow spread multiplier: ", "prompt_on_new": True})
 
 
 class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
@@ -107,18 +110,30 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
         candle_sma = self.processed_data["candle_sma"]
         candle_cci = self.processed_data["candle_cci"]
         
-        if trade_type == TradeType.BUY:
-            if candle_close < candle_sma and candle_cci < -self.config.cci_threshold:
-                spread_in_pct *= Decimal(self.config.adaptive_spread_multiplier)
-                msg = f"Widen {level_id} spread to {spread_in_pct:.2%}, spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}, " \
-                        f"candle_close:{candle_close:.5f}, candle_sma:{candle_sma:.5f}, candle_cci:{candle_cci:.1f}"
-                self.logger().info(msg)
-        else:
-            if candle_close > candle_sma and candle_cci > -self.config.cci_threshold:
-                spread_in_pct *= Decimal(self.config.adaptive_spread_multiplier)
-                msg = f"Widen {level_id} spread to {spread_in_pct:.2%}, spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}, " \
-                        f"candle_close:{candle_close:.5f}, candle_sma:{candle_sma:.5f}, candle_cci:{candle_cci:.1f}"
-                self.logger().info(msg)
+        if candle_close < candle_sma and candle_cci < -self.config.cci_threshold:   # down trend
+            msg = ""
+            if trade_type == TradeType.BUY:
+                spread_in_pct *= Decimal(self.config.widen_spread_multiplier)
+                msg = "Widen"
+            elif trade_type == TradeType.SELL:
+                spread_in_pct *= Decimal(self.config.narrow_spread_multiplier)
+                msg = "Narrow"
+                
+            msg = f"{msg} {level_id} spread to {spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}, " \
+                    f"candle_close:{candle_close:.5f}, candle_sma:{candle_sma:.5f}, candle_cci:{candle_cci:.1f}"
+            self.logger().info(msg)
+        elif candle_close > candle_sma and candle_cci > self.config.cci_threshold:  # up trend
+            msg = ""
+            if trade_type == TradeType.BUY:
+                spread_in_pct *= Decimal(self.config.narrow_spread_multiplier)
+                msg = "Narrow"
+            elif trade_type == TradeType.SELL:
+                spread_in_pct *= Decimal(self.config.widen_spread_multiplier)
+                msg = "Widen"
+                
+            msg = f"{msg} {level_id} spread to {spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}, " \
+                    f"candle_close:{candle_close:.5f}, candle_sma:{candle_sma:.5f}, candle_cci:{candle_cci:.1f}"
+            self.logger().info(msg)
         
         side_multiplier = Decimal("-1") if trade_type == TradeType.BUY else Decimal("1")
         order_price = reference_price * (1 + side_multiplier * spread_in_pct)
@@ -141,13 +156,13 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
         natr = Decimal(self.processed_data["natr"])
         base_spread_multiplier = natr / 2
         
-        initial_triple_barrier_config = self.config.triple_barrier_config
+        initial_config = self.config.triple_barrier_config
         
-        stop_loss = initial_triple_barrier_config.stop_loss
-        take_profit = max(initial_triple_barrier_config.take_profit, base_spread_multiplier * 4)
-        time_limit = initial_triple_barrier_config.time_limit
-        trailing_stop_activation_price = min(0.02, max(initial_triple_barrier_config.trailing_stop.activation_price, base_spread_multiplier * 2))
-        trailing_stop_delta = min(0.005, max(initial_triple_barrier_config.trailing_stop.trailing_delta, base_spread_multiplier))
+        stop_loss = initial_config.stop_loss
+        take_profit = max(initial_config.take_profit, base_spread_multiplier * 4)
+        time_limit = initial_config.time_limit
+        trailing_stop_activation_price = min(Decimal(0.8) * initial_config.take_profit, max(initial_config.trailing_stop.activation_price, base_spread_multiplier * 2))
+        trailing_stop_delta = min(2 * initial_config.trailing_stop.trailing_delta, max(initial_config.trailing_stop.trailing_delta, base_spread_multiplier))
         
         trailing_stop = TrailingStop(activation_price=trailing_stop_activation_price, trailing_delta=trailing_stop_delta)
         
