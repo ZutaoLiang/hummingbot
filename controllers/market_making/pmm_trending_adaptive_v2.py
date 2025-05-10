@@ -80,7 +80,7 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
             )]
         super().__init__(config, *args, **kwargs)
         self.update_data_interval = self.config.update_interval
-        self.last_update_data_time = time.time() - self.update_data_interval - 1
+        self.last_update_data_time = time.time() - self.update_data_interval - 10
 
     async def update_processed_data(self):
         current_time = time.time()
