@@ -33,6 +33,7 @@ trading_pair: 1000PEPE-USDT
 trailing_stop:
   activation_price: 0.012
   trailing_delta: 0.002
+sleep_interval: 3  
 update_interval: 180
 candle_interval: 15m
 sma_short_length: 10

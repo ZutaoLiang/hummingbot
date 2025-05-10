@@ -30,10 +30,15 @@ class PMMTrendingAdaptiveV2ControllerConfig(MarketMakingControllerConfigBase):
             "prompt": "Enter a comma-separated list of sell spreads measured in units of volatility(e.g., '1, 2'): ",
             "prompt_on_new": True, "is_updatable": True}
     )
+    sleep_interval: int = Field(
+        default="3",
+        json_schema_extra={
+            "prompt": "Enter the sleep interval seconds(3): ",
+            "prompt_on_new": True})
     update_interval: int = Field(
         default="180",
         json_schema_extra={
-            "prompt": "Enter the update data interval seconds: ",
+            "prompt": "Enter the update data interval seconds(180): ",
             "prompt_on_new": True})
     candle_interval: str = Field(
         default="15m",
@@ -78,7 +83,7 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
                 interval=config.candle_interval,
                 max_records=self.max_records
             )]
-        super().__init__(config, *args, **kwargs)
+        super().__init__(config, update_interval=self.config.sleep_interval, *args, **kwargs)
         self.update_data_interval = self.config.update_interval
         self.last_update_data_time = time.time() - self.update_data_interval - 10
 
