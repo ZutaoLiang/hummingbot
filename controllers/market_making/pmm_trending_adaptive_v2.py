@@ -1,5 +1,6 @@
 from decimal import Decimal
 from typing import List, Tuple
+import time
 
 import pandas_ta as ta
 from pydantic import Field, field_validator
@@ -30,9 +31,9 @@ class PMMTrendingAdaptiveV2ControllerConfig(MarketMakingControllerConfigBase):
             "prompt_on_new": True, "is_updatable": True}
     )
     update_interval: int = Field(
-        default="60",
+        default="180",
         json_schema_extra={
-            "prompt": "Enter the update interval seconds: ",
+            "prompt": "Enter the update data interval seconds: ",
             "prompt_on_new": True})
     candle_interval: str = Field(
         default="15m",
@@ -77,9 +78,15 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
                 interval=config.candle_interval,
                 max_records=self.max_records
             )]
-        super().__init__(config, update_interval=self.config.update_interval, *args, **kwargs)
+        super().__init__(config, *args, **kwargs)
+        self.update_data_interval = self.config.update_interval
+        self.last_update_data_time = time.time() - self.update_data_interval - 1
 
     async def update_processed_data(self):
+        current_time = time.time()
+        if current_time - self.last_update_data_time < self.update_data_interval:
+            return
+        
         candles = self.market_data_provider.get_candles_df(connector_name=self.config.connector_name,
                                                            trading_pair=self.config.trading_pair,
                                                            interval=self.config.candle_interval,
@@ -111,6 +118,8 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
             "natr": Decimal(natr.iloc[-1]),
             "trend": trend
         }
+        
+        self.last_update_data_time = current_time
 
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
         """
