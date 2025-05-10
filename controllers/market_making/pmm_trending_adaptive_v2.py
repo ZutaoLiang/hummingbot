@@ -87,6 +87,7 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
         if current_time - self.last_update_data_time < self.update_data_interval:
             return
         
+        self.logger().info(f"Updating data for {self.config.trading_pair} {self.config.candle_interval}")
         candles = self.market_data_provider.get_candles_df(connector_name=self.config.connector_name,
                                                            trading_pair=self.config.trading_pair,
                                                            interval=self.config.candle_interval,
