@@ -119,11 +119,14 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
                                f"candle_cci:{candle_cci:.1f} < threshold:{-self.config.cci_threshold:.1f}")
         
         reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
-        self.processed_data = {
-            "reference_price": Decimal(reference_price),
-            "natr": Decimal(natr.iloc[-1]),
-            "trend": trend
-        }
+        
+        self.processed_data.update(
+            {
+                "reference_price": Decimal(reference_price),
+                "natr": Decimal(natr.iloc[-1]),
+                "trend": trend
+            }
+        )
         
         self.last_update_data_time = current_time
 

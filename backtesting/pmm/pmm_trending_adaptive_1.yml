@@ -1,45 +1,40 @@
 buy_amounts_pct:
 - 0.1
-- 0.15
-- 0.25
+- 0.2
+- 0.2
 buy_spreads:
 - 1
 - 2
 - 3
 sell_amounts_pct:
 - 0.1
-- 0.15
-- 0.25
+- 0.2
+- 0.2
 sell_spreads:
 - 1
 - 2
 - 3
 candles_config: []
 connector_name: binance_perpetual
-controller_name: pmm_trending_adaptive_v2
+controller_name: pmm_trending_adaptive
 controller_type: market_making
 cooldown_time: 1800
 executor_refresh_time: 900
-id: 1000PEPE-1.0
+id: voxel-usdt_0.1
 leverage: 15
 manual_kill_switch: false
 position_mode: ONEWAY
 stop_loss: 0.03
-take_profit: 0.035
+take_profit: 0.03
 take_profit_order_type: 2
 time_limit: 86400
 total_amount_quote: 90
-trading_pair: 1000PEPE-USDT
+trading_pair: VOXEL-USDT
 trailing_stop:
-  activation_price: 0.012
-  trailing_delta: 0.002
-sleep_interval: 3  
-update_interval: 180
+  activation_price: 0.018
+  trailing_delta: 0.003
+update_interval: 60
 candle_interval: 15m
-sma_short_length: 10
 sma_length: 30
 cci_length: 30
-cci_threshold: 100
 natr_length: 14
-widen_spread_multiplier: 3
-narrow_spread_multiplier: 0.8

@@ -78,13 +78,16 @@ class PMMTrendingAdaptiveController(MarketMakingControllerBase):
         # adx = ta.adx(candles["high"], candles["low"], candles["close"], length=self.config.adx_length)
         
         reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
-        self.processed_data = {
-            "reference_price": Decimal(reference_price),
-            "natr": Decimal(natr.iloc[-1]),
-            "candle_close": candles["close"].iloc[-1],
-            "candle_sma": sma.iloc[-1],
-            "candle_cci": cci.iloc[-1]
-        }
+
+        self.processed_data.update(
+            {
+                "reference_price": Decimal(reference_price),
+                "natr": Decimal(natr.iloc[-1]),
+                "candle_close": candles["close"].iloc[-1],
+                "candle_sma": sma.iloc[-1],
+                "candle_cci": cci.iloc[-1]
+            }
+        )
 
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
         """
