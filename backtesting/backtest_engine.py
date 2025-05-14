@@ -90,11 +90,6 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
             name='K线图',
         )
         
-        return go.Scatter(x=self.processed_data.index,
-                          y=self.processed_data['close'],
-                          mode='lines',
-                          line=dict(color='#6A8AFF', width=2),
-                          )
 
     @staticmethod
     def _get_pnl_trace(executors, line_style: str = "solid"):
@@ -313,25 +308,28 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
                 
             net_pnl_pct = (entry_price - close_price) / entry_price - trade_cost
             
-        filled_amount_quote = float(config.amount) * entry_price
-        executor_simulation['filled_amount_quote'] = filled_amount_quote
-        cum_fees_quote = trade_cost * filled_amount_quote
-        executor_simulation['cum_fees_quote'] = cum_fees_quote
-        
-        net_pnl_quote = filled_amount_quote * net_pnl_pct
-        
         close_time = "End"
         if close_timestamp is not None:
             close_time = datetime.fromtimestamp(close_timestamp).strftime("%Y%m%d:%H%M%S")
-            executor_simulation = executor_simulation[executor_simulation['timestamp'] <= close_timestamp]
+        else:
+            close_timestamp = last_timestamp
+        
+        executor_simulation = executor_simulation[executor_simulation['timestamp'] <= close_timestamp]
+        
+        filled_amount_quote = float(config.amount) * entry_price
+        net_pnl_quote = filled_amount_quote * net_pnl_pct
+        cum_fees_quote = filled_amount_quote * trade_cost
+        
+        executor_simulation.loc[executor_simulation['timestamp'] >= start_timestamp, ['filled_amount_quote', 'cum_fees_quote']] = [filled_amount_quote, cum_fees_quote]
         
         last_loc = executor_simulation.index[-1]
         executor_simulation.loc[last_loc, "net_pnl_pct"] = net_pnl_pct
         executor_simulation.loc[last_loc, "filled_amount_quote"] = filled_amount_quote * 2
         executor_simulation.loc[last_loc, "net_pnl_quote"] = net_pnl_quote
-        executor_simulation.loc[last_loc, "cum_fees_quote"] = cum_fees_quote
+        executor_simulation.loc[last_loc, "cum_fees_quote"] = cum_fees_quote * 2
         
-        print(f'{config.level_id} {close_type}({entry_time}-{close_time}), entry:{entry_price:.7f}, close:{close_price:.7f}, amount:{config.amount:.2f}, quote:{filled_amount_quote:.2f}, net_pnl:{net_pnl_quote:.2f}')
+        print(f'{config.level_id} {close_type}({entry_time}-{close_time})[{int(close_timestamp-start_timestamp)}s], ' 
+              f'entry:{entry_price:.7f}, close:{close_price:.7f}, amount:{config.amount:.2f}, quote:{filled_amount_quote:.2f}, net_pnl:{net_pnl_quote:.2f}')
         
         simulation = ExecutorSimulation(
             config=config,
@@ -385,6 +383,8 @@ class BacktestEngine(BacktestingEngineBase):
         await self.initialize_backtesting_data_provider()
         
         market_data = self.prepare_market_data()
+        # processed_data will be recreated by MarketMakingControllerBase.update_processed_data() if not implemented by sub-class, so we keep it for backtest result
+        market_data_features = self.controller.processed_data["features"]
         
         print(f'Prepare market data:{int(time.time() - t)} seconds')
         t = time.time()
@@ -414,6 +414,8 @@ class BacktestEngine(BacktestingEngineBase):
         results = self.summarize_results(executors_info, controller_config.total_amount_quote)
         
         print(f'Summraize results:{int(time.time() - t)} seconds')
+        
+        self.controller.processed_data['features'] = market_data_features
         
         return {
             "executors": executors_info,
