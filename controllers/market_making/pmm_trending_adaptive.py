@@ -48,6 +48,7 @@ class PMMTrendingAdaptiveControllerConfig(MarketMakingControllerConfigBase):
     natr_length: int = Field(
         default=14,
         json_schema_extra={"prompt": "Enter the NATR length: ", "prompt_on_new": True})
+    backtesting: bool = Field(default=False, json_schema_extra={"is_updatable": True})
 
 
 class PMMTrendingAdaptiveController(MarketMakingControllerBase):

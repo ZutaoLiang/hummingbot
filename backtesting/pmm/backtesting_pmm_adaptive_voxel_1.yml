@@ -19,7 +19,7 @@ connector_name: binance_perpetual
 controller_name: pmm_adaptive
 controller_type: market_making
 cooldown_time: 1800
-executor_refresh_time: 600
+executor_refresh_time: 900
 id: voxel-usdt_0.1
 leverage: 10
 manual_kill_switch: false

@@ -3,24 +3,24 @@ buy_amounts_pct:
 - 0.2
 - 0.2
 buy_spreads:
+- 0.005
 - 0.01
 - 0.015
-- 0.02
 sell_amounts_pct:
 - 0.1
 - 0.2
 - 0.2
 sell_spreads:
+- 0.005
 - 0.01
 - 0.015
-- 0.02
 candles_config: []
 connector_name: binance_perpetual
 controller_name: pmm_simple
 controller_type: market_making
 cooldown_time: 3600
 executor_refresh_time: 900
-id: voxel-usdt_0.1
+id: xrp-usdt_0.1
 leverage: 15
 manual_kill_switch: false
 position_mode: ONEWAY
@@ -28,8 +28,9 @@ stop_loss: 0.025
 take_profit: 0.04
 take_profit_order_type: 2
 time_limit: 86400
-total_amount_quote: 150
-trading_pair: VOXEL-USDT
+total_amount_quote: 90
+trading_pair: XRP-USDT
 trailing_stop:
   activation_price: 0.018
   trailing_delta: 0.003
+backtesting: true

@@ -66,6 +66,7 @@ class PMMTrendingAdaptiveV2ControllerConfig(MarketMakingControllerConfigBase):
     narrow_spread_multiplier: float = Field(
         default=0.6,
         json_schema_extra={"prompt": "Enter the narrow spread multiplier(0.5): ", "prompt_on_new": True})
+    backtesting: bool = Field(default=False, json_schema_extra={"is_updatable": True})
 
 
 class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
@@ -128,7 +129,8 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
             }
         )
         
-        self.last_update_data_time = current_time
+        if not self.config.backtesting:
+            self.last_update_data_time = current_time
 
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
         """
@@ -163,7 +165,7 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
         if order_price <= 0:
             return 0, 0
         
-        return order_price, Decimal(amounts_quote[int(level)]) / order_price
+        return order_price, round(Decimal(amounts_quote[int(level)]) / order_price)
 
     def get_executor_config(self, level_id: str, price: Decimal, amount: Decimal):
         if price == 0:

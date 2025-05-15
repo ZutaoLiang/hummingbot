@@ -31,15 +31,21 @@ from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction,
 from hummingbot.strategy_v2.backtesting.executor_simulator_base import ExecutorSimulation, ExecutorSimulatorBase
 from hummingbot.strategy_v2.backtesting.backtesting_engine_base import BacktestingEngineBase
 
+local_timezone_offset_hours = 8
 
 class BacktestResult:
-    def __init__(self, backtesting_result: Dict, controller_config: ControllerConfigBase, start_date: datetime, end_date: datetime):
+    
+    def __init__(self, backtesting_result: Dict, controller_config: ControllerConfigBase, backtest_resolution, 
+                 start_date: datetime, end_date: datetime, trade_cost: float, slippage: float):
         self.processed_data = backtesting_result["processed_data"]["features"]
         self.results = backtesting_result["results"]
         self.executors = backtesting_result["executors"]
         self.controller_config = controller_config
+        self.backtest_resolution = backtest_resolution
         self.start_date = start_date
         self.end_date = end_date
+        self.trade_cost = trade_cost
+        self.slippage = slippage
 
     def get_results_summary(self, results: Optional[Dict] = None):
         if results is None:
@@ -62,7 +68,7 @@ class BacktestResult:
         trading_pair = self.controller_config.dict().get('trading_pair')
         return f"""
 =====================================================================================================================================    
-Backtest result for {trading_pair} From: {self.start_date} to: {self.end_date}
+Backtest result for {trading_pair}({self.backtest_resolution}) From: {self.start_date} to: {self.end_date} with trade cost: {self.trade_cost:.2%} and slippage:{self.slippage:.2%}
 Net PNL: ${net_pnl_quote:.2f} ({net_pnl_pct*100:.2f}%) | Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct*100:.2f}%)
 Total Volume ($): {total_volume:.2f} | Sharpe Ratio: {sharpe_ratio:.2f} | Profit Factor: {profit_factor:.2f}
 Total Executors: {total_executors} | Accuracy Long: {accuracy_long:.2%} | Accuracy Short: {accuracy_short:.2%}
@@ -77,7 +83,7 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
         return executors_df
 
     def _get_bt_candlestick_trace(self):
-        self.processed_data.index = pd.to_datetime(self.processed_data.timestamp, unit='s') + pd.Timedelta(hours=8)
+        self.processed_data.index = pd.to_datetime(self.processed_data.timestamp, unit='s') + pd.Timedelta(hours=local_timezone_offset_hours)
         
         return go.Candlestick(
             x=self.processed_data.index,
@@ -87,7 +93,7 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
             close=self.processed_data['close'],
             increasing_line_color='#2ECC71',  # 上涨K线颜色（绿色）
             decreasing_line_color='#E74C3C',  # 下跌K线颜色（红色）
-            name='K线图',
+            name='K-Lines',
         )
         
 
@@ -96,7 +102,7 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
         pnl = [e.net_pnl_quote for e in executors]
         cum_pnl = np.cumsum(pnl)
         return go.Scatter(
-            x=pd.to_datetime([e.close_timestamp for e in executors], unit="s") + pd.Timedelta(hours=8),
+            x=pd.to_datetime([e.close_timestamp for e in executors], unit="s") + pd.Timedelta(hours=local_timezone_offset_hours),
             y=cum_pnl,
             mode='lines',
             line=dict(color='gold', width=2, dash=line_style if line_style == "dash" else None),
@@ -126,11 +132,12 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
     @staticmethod
     def _add_executors_trace(fig, executors, row=1, col=1, line_style="solid"):
         for executor in executors:
-            entry_time = pd.to_datetime(executor.timestamp, unit='s') + pd.Timedelta(hours=8)
+            entry_time = pd.to_datetime(executor.timestamp, unit='s') + pd.Timedelta(hours=local_timezone_offset_hours)
             entry_price = executor.custom_info["current_position_average_price"]
-            exit_time = pd.to_datetime(executor.close_timestamp, unit='s') + pd.Timedelta(hours=8)
+            exit_time = pd.to_datetime(executor.close_timestamp, unit='s') + pd.Timedelta(hours=local_timezone_offset_hours)
             exit_price = executor.custom_info["close_price"]
-            name = "Buy Executor" if executor.config.side == TradeType.BUY else "Sell Executor"
+            # TODO:
+            name = f"Buy-{executor.close_type}" if executor.config.side == TradeType.BUY else f"Sell-{executor.close_type}"
 
             if executor.filled_amount_quote == 0:
                 fig.add_trace(
@@ -140,15 +147,15 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
             else:
                 if executor.net_pnl_quote > Decimal(0):
                     fig.add_trace(go.Scatter(x=[entry_time, exit_time], y=[entry_price, exit_price], mode='lines',
-                                             showlegend=False,
-                                             line=dict(color='green', width=3,
+                                             showlegend=True,
+                                             line=dict(color='green', width=4,
                                                        dash=line_style if line_style == "dash" else None), name=name),
                                   row=row,
                                   col=col)
                 else:
                     fig.add_trace(go.Scatter(x=[entry_time, exit_time], y=[entry_price, exit_price], mode='lines',
-                                             showlegend=False,
-                                             line=dict(color='red', width=3,
+                                             showlegend=True,
+                                             line=dict(color='red', width=4,
                                                        dash=line_style if line_style == "dash" else None), name=name),
                                   row=row, col=col)
 
@@ -184,12 +191,12 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
 
 class MyPositionExecutorSimulator(ExecutorSimulatorBase):
     
-    def simulate(self, df: pd.DataFrame, config: PositionExecutorConfig, trade_cost: float) -> ExecutorSimulation:
+    def simulate(self, df: pd.DataFrame, config: PositionExecutorConfig, trade_cost: float, slippage: float) -> ExecutorSimulation:
         if config.triple_barrier_config.open_order_type.is_limit_type():
             entry_condition = (df['low'] <= config.entry_price) if config.side == TradeType.BUY else (df['high'] >= config.entry_price)
             start_timestamp = df[entry_condition]['timestamp'].min()
         else:
-            start_timestamp = df['timestamp'].min()        
+            start_timestamp = df['timestamp'].min()
         last_timestamp = df['timestamp'].max()
 
         # Set up barriers
@@ -214,12 +221,15 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
         if pd.isna(start_timestamp):
             return ExecutorSimulation(config=config, executor_simulation=executor_simulation, close_type=CloseType.TIME_LIMIT)
 
-        entry_time = datetime.fromtimestamp(start_timestamp).strftime("%Y%m%d:%H%M%S")
+        simulation_filterd = executor_simulation[executor_simulation['timestamp'] >= start_timestamp]
+        if simulation_filterd.empty:
+            return ExecutorSimulation(config=config, executor_simulation=executor_simulation, close_type=CloseType.TIME_LIMIT)
+        
+        entry_time = datetime.fromtimestamp(start_timestamp).strftime("%m%d:%H%M")
+        last_timestamp = executor_simulation['timestamp'].max()
         
         # entry_price = df.loc[df['timestamp'] == start_timestamp, 'close'].values[0]
         entry_price = float(config.entry_price)
-        
-        simulation_filterd = executor_simulation[executor_simulation['timestamp'] >= start_timestamp]
         
         timestamps = simulation_filterd['timestamp'].values
         lows = simulation_filterd['low'].values
@@ -235,23 +245,24 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
         
         if config.side == TradeType.BUY:
             side_multiplier = 1
-            take_profit_price = entry_price * (1 + side_multiplier * (take_profit + trade_cost))
-            stop_loss_price = entry_price * (1 - side_multiplier * stop_loss)
+            take_profit_trigger_price = entry_price * (1 + side_multiplier * (take_profit + trade_cost))
+            stop_loss_trigger_price = entry_price * (1 - side_multiplier * stop_loss)
             
             for i in range(count):
                 timestamp = timestamps[i]
+                next_timestamp = timestamps[i+1] if i < count-1 else timestamp
                 low = lows[i]
                 
-                if low <= stop_loss_price:
-                    close_timestamp = timestamp
-                    close_price = stop_loss_price
+                if low <= stop_loss_trigger_price:
+                    close_timestamp = next_timestamp
+                    close_price = stop_loss_trigger_price * (1 - side_multiplier*slippage)
                     close_type = CloseType.STOP_LOSS
                     break
 
                 high = highs[i]
-                if high >= take_profit_price:
-                    close_timestamp = timestamp
-                    close_price = take_profit_price
+                if high >= take_profit_trigger_price:
+                    close_timestamp = next_timestamp
+                    close_price = take_profit_trigger_price * (1 - side_multiplier*slippage)
                     close_type = CloseType.TAKE_PROFIT
                     break
                 
@@ -262,8 +273,8 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
                 if trailing_stop_activated:
                     max_profit_ratio = max(max_profit_ratio, high/entry_price - 1)
                     if (max_profit_ratio - (low/entry_price - 1)) > trailing_sl_delta_pct:
-                        close_timestamp = timestamp
-                        close_price = entry_price * (1 + max_profit_ratio - trailing_sl_delta_pct)
+                        close_timestamp = next_timestamp
+                        close_price = entry_price * (1 + max_profit_ratio - trailing_sl_delta_pct) * (1 - side_multiplier*slippage)
                         close_type = CloseType.TRAILING_STOP
                         break
                 
@@ -272,23 +283,24 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
             net_pnl_pct = (close_price - entry_price) / entry_price - trade_cost
         else:
             side_multiplier = -1
-            take_profit_price = entry_price * (1 + side_multiplier * (take_profit + trade_cost))
-            stop_loss_price = entry_price * (1 - side_multiplier * stop_loss)
+            take_profit_trigger_price = entry_price * (1 + side_multiplier * (take_profit + trade_cost))
+            stop_loss_trigger_price = entry_price * (1 - side_multiplier * stop_loss)
             
             for i in range(count):
                 timestamp = timestamps[i]
+                next_timestamp = timestamps[i+1] if i < count-1 else timestamp
                 high = highs[i]
                 
-                if stop_loss_price <= high:
-                    close_timestamp = timestamp
-                    close_price = stop_loss_price
+                if stop_loss_trigger_price <= high:
+                    close_timestamp = next_timestamp
+                    close_price = stop_loss_trigger_price * (1 - side_multiplier*slippage)
                     close_type = CloseType.STOP_LOSS
                     break
 
                 low = lows[i]
-                if low <= take_profit_price:
-                    close_timestamp = timestamp
-                    close_price = take_profit_price
+                if low <= take_profit_trigger_price:
+                    close_timestamp = next_timestamp
+                    close_price = take_profit_trigger_price * (1 - side_multiplier*slippage)
                     close_type = CloseType.TAKE_PROFIT
                     break
                 
@@ -299,8 +311,8 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
                 if trailing_stop_activated:
                     max_profit_ratio = max(max_profit_ratio, 1 - low/entry_price)
                     if (max_profit_ratio - (1 - high/entry_price)) > trailing_sl_delta_pct:
-                        close_timestamp = timestamp
-                        close_price = entry_price * (1 - (max_profit_ratio - trailing_sl_delta_pct))
+                        close_timestamp = next_timestamp
+                        close_price = entry_price * (1 - (max_profit_ratio - trailing_sl_delta_pct)) * (1 - side_multiplier*slippage)
                         close_type = CloseType.TRAILING_STOP
                         break
                 
@@ -310,7 +322,7 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
             
         close_time = "End"
         if close_timestamp is not None:
-            close_time = datetime.fromtimestamp(close_timestamp).strftime("%Y%m%d:%H%M%S")
+            close_time = datetime.fromtimestamp(close_timestamp).strftime("%m%d:%H%M")
         else:
             close_timestamp = last_timestamp
         
@@ -324,13 +336,17 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
         
         last_loc = executor_simulation.index[-1]
         executor_simulation.loc[last_loc, "net_pnl_pct"] = net_pnl_pct
-        executor_simulation.loc[last_loc, "filled_amount_quote"] = filled_amount_quote * 2
         executor_simulation.loc[last_loc, "net_pnl_quote"] = net_pnl_quote
+        executor_simulation.loc[last_loc, "filled_amount_quote"] = filled_amount_quote * 2
         executor_simulation.loc[last_loc, "cum_fees_quote"] = cum_fees_quote * 2
         
-        print(f'{config.level_id} {close_type}({entry_time}-{close_time})[{int(close_timestamp-start_timestamp)}s], ' 
-              f'entry:{entry_price:.7f}, close:{close_price:.7f}, amount:{config.amount:.2f}, quote:{filled_amount_quote:.2f}, net_pnl:{net_pnl_quote:.2f}')
+        info = f'Pnl:{net_pnl_quote:+.2f}, entry:{entry_price:.7f}, close:{close_price:.7f}, amount:{config.amount:.2f}, quote:{filled_amount_quote:.2f}, ' \
+                f'[{config.level_id}] {close_type}({entry_time}-{close_time})[{int(close_timestamp-start_timestamp)}s]'
+        print(f'\033[92m{info}\033[0m' if net_pnl_quote > 0 else f'\033[91m{info}\033[0m')
         
+        if close_type != CloseType.TIME_LIMIT:
+            config.timestamp = start_timestamp
+            
         simulation = ExecutorSimulation(
             config=config,
             executor_simulation=executor_simulation,
@@ -344,30 +360,36 @@ class BacktestEngine(BacktestingEngineBase):
     def __init__(self):
         super().__init__()
         
-    def run_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, backtest_resolution: str = '3m', trade_cost: float = 0.0005):
+    def run_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
+                     backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float=0.001):
         try:
             __IPYTHON__
-            self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost)
+            self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost, slippage)
         except:
-            asyncio.run(self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost))
+            asyncio.run(self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost, slippage))
     
-    async def async_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, backtest_resolution: str = '3m', trade_cost: float = 0.0005):
+    async def async_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
+                             backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float=0.001):
         controller_config = self.get_controller_config_instance_from_yml(controllers_conf_dir_path=config_dir, config_path=config_path)
         start = int(start_date.timestamp())
         end = int(end_date.timestamp())
 
-        result = await self.do_backtest(controller_config, start, end, backtest_resolution, trade_cost)
+        result = await self.do_backtest(controller_config, start, end, backtest_resolution, trade_cost, slippage)
         
-        backtest_result = BacktestResult(result, controller_config, start_date, end_date)
+        backtest_result = BacktestResult(result, controller_config, backtest_resolution, start_date, end_date, trade_cost, slippage)
         print(backtest_result.get_results_summary())
         
         return backtest_result
+    
+    def add_active_executors(self, simulation: ExecutorSimulation):
+        if not simulation.executor_simulation.empty and simulation not in self.active_executor_simulations:
+            self.active_executor_simulations.append(simulation)
     
     async def do_backtest(self,
                           controller_config: ControllerConfigBase,
                           start: int, end: int,
                           backtesting_resolution: str = "1m",
-                          trade_cost=0.0006):
+                          trade_cost=0.0006, slippage: float=0.001):
         self.active_executor_simulations: List[ExecutorSimulation] = []
         self.stopped_executors_info: List[ExecutorInfo] = []
         self.backtesting_resolution = backtesting_resolution
@@ -400,9 +422,9 @@ class BacktestEngine(BacktestingEngineBase):
             for action in self.controller.determine_executor_actions():
                 if isinstance(action, CreateExecutorAction):
                     market_data_from_start = market_data.loc[i:]
-                    executor_simulation = MyPositionExecutorSimulator().simulate(market_data_from_start, action.executor_config, trade_cost)
+                    executor_simulation = MyPositionExecutorSimulator().simulate(market_data_from_start, action.executor_config, trade_cost, slippage)
                     if executor_simulation.close_type != CloseType.FAILED:
-                        self.manage_active_executors(executor_simulation)
+                        self.add_active_executors(executor_simulation)
                 elif isinstance(action, StopExecutorAction):
                     self.handle_stop_action(action, row["timestamp"])
         
