@@ -3,24 +3,24 @@ buy_amounts_pct:
 - 0.2
 - 0.2
 buy_spreads:
-- 0.005
-- 0.01
-- 0.015
+- 1
+- 2
+- 3
 sell_amounts_pct:
 - 0.1
 - 0.2
 - 0.2
 sell_spreads:
-- 0.005
-- 0.01
-- 0.015
+- 1
+- 2
+- 3
 candles_config: []
 connector_name: binance_perpetual
-controller_name: pmm_simple
+controller_name: pmm_trending_adaptive_v2
 controller_type: market_making
-cooldown_time: 3600
+cooldown_time: 1800
 executor_refresh_time: 900
-id: xrp-usdt_0.1
+id: voxel-usdt_0.1
 leverage: 15
 manual_kill_switch: false
 position_mode: ONEWAY
@@ -33,3 +33,14 @@ trading_pair: VOXEL-USDT
 trailing_stop:
   activation_price: 0.018
   trailing_delta: 0.003
+sleep_interval: 5
+update_interval: 180
+candle_interval: 15m
+sma_short_length: 10
+sma_length: 30
+cci_length: 30
+cci_threshold: 60
+natr_length: 14
+widen_spread_multiplier: 3
+narrow_spread_multiplier: 1
+backtesting: true

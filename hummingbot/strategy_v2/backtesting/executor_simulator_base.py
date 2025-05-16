@@ -43,6 +43,9 @@ class ExecutorSimulation(BaseModel):
                 custom_info={}
             )
 
+        entry_timestamp = self.executor_simulation[
+            pd.to_numeric(self.executor_simulation['filled_amount_quote'], errors='coerce') > 0
+        ]['timestamp'].min()
         last_entry = df_up_to_timestamp.iloc[-1]
         is_active = last_entry['timestamp'] < self.executor_simulation['timestamp'].max()
         return ExecutorInfo(
@@ -59,12 +62,13 @@ class ExecutorSimulation(BaseModel):
             filled_amount_quote=Decimal(last_entry['filled_amount_quote']),
             is_active=is_active,
             is_trading=last_entry['filled_amount_quote'] > 0 and is_active,
-            custom_info=self.get_custom_info(last_entry)
+            custom_info=self.get_custom_info(last_entry, entry_timestamp)
         )
 
-    def get_custom_info(self, last_entry: pd.Series) -> dict:
+    def get_custom_info(self, last_entry: pd.Series, entry_timestamp) -> dict:
         current_position_average_price = last_entry['current_position_average_price'] if "current_position_average_price" in last_entry else None
         return {
+            "entry_timestamp": entry_timestamp,
             "close_price": last_entry['close'],
             "level_id": self.config.level_id,
             "side": self.config.side,
