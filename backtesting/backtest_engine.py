@@ -8,18 +8,23 @@ warnings.filterwarnings("ignore")
 import time
 from decimal import Decimal
 from typing import List, Dict, Optional
+from dataclasses import dataclass
 from datetime import datetime
 import numpy as np
 import pandas as pd
+import pickle
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-import socket
-import socks
-socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", 10810)
-socket.socket = socks.socksocket
+# import socket
+# import socks
+# socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", 10810)
+# socket.socket = socks.socksocket
 
 import asyncio
+# import multiprocessing
+# multiprocessing.set_start_method('spawn', force=True)
+import aiomultiprocess as amp
 
 from hummingbot.core.data_type.common import TradeType
 from hummingbot.connector.connector_base import ConnectorBase
@@ -225,29 +230,57 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
 
 class CacheableBacktestingDataProvider(BacktestingDataProvider):
     
-    def __init__(self, connectors: Dict[str, ConnectorBase]):
+    def __init__(self, connectors: Dict[str, ConnectorBase], base_dir: str = '.'):
         super().__init__(connectors)
+        self.data_dir = os.path.join(base_dir, 'data')
+    
+    async def init_data(self, start_time: int, end_time: int, candles_config: CandlesConfig):
+        self.update_start_end_time(start_time, end_time)
+        await self.initialize_trading_rules(candles_config.connector)
+        await self.get_candles_feed(candles_config)
+    
+    async def initialize_trading_rules(self, connector: str):
+        if len(self.trading_rules.get(connector, {})) == 0:
+            file_path = os.path.join(self.data_dir, self._get_local_trading_rules_file(connector))
+            if os.path.exists(file_path):
+                with open(file_path, "rb") as f:
+                    print(f'Loaded {connector} trading rules from {file_path}')
+                    self.trading_rules[connector] = pickle.load(f)
+                    return
+        
+        await super().initialize_trading_rules(connector)
+        
+        if not os.path.exists(self.data_dir):
+            os.mkdir(self.data_dir)
+            
+        with open(file_path, "wb") as f:
+            pickle.dump(self.trading_rules[connector], f)
+            print(f'Saved {connector} trading rules to {file_path}')
     
     def update_start_end_time(self, start_time: int, end_time: int):
         self.start_time = start_time
         self.end_time = end_time
     
-    def _get_local_file_name(self, key: str):
+    def _get_local_trading_rules_file(self, key: str):
+        return f'{key}-trading-rules.pkl'
+    
+    def _get_local_market_data_file(self, key: str):
         return f'{key}-{self.start_time}-{self.end_time}.parquet'
     
-    def _load_from_local(self, key: str, dir: str ='./data'):
-        file_path = os.path.join(dir, self._get_local_file_name(key))
+    def _load_market_data_from_local(self, key: str):
+        file_path = os.path.join(self.data_dir, self._get_local_market_data_file(key))
         if not os.path.exists(file_path):
             return pd.DataFrame()
         
+        print(f'Loaded market data from {file_path}')
         return pd.read_parquet(file_path, engine="pyarrow")
     
-    def _save_to_local(self, df: pd.DataFrame, key: str, dir: str = './data'):
-        if not os.path.exists(dir):
-            os.mkdir(dir)
-        file_path = os.path.join(dir, self._get_local_file_name(key))
+    def _save_to_local(self, df: pd.DataFrame, key: str):
+        if not os.path.exists(self.data_dir):
+            os.mkdir(self.data_dir)
+        file_path = os.path.join(self.data_dir, self._get_local_market_data_file(key))
         df.to_parquet(file_path, engine="pyarrow")
-        print(f'Saved {file_path}')
+        print(f'Saved market data to {file_path}')
         
     def _filter_existing_feed(self, existing_feed: pd.DataFrame):
         if existing_feed.empty:
@@ -266,7 +299,7 @@ class CacheableBacktestingDataProvider(BacktestingDataProvider):
         if not existing_feed.empty:
             return existing_feed
         
-        candles_df = self._load_from_local(key)
+        candles_df = self._load_market_data_from_local(key)
         if candles_df.empty:
             candles_df = await super().get_candles_feed(config)
             self._save_to_local(candles_df, key)
@@ -431,9 +464,9 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
         executor_simulation.loc[last_loc, "filled_amount_quote"] = filled_amount_quote * 2
         executor_simulation.loc[last_loc, "cum_fees_quote"] = cum_fees_quote * 2
         
-        info = f'Pnl:{net_pnl_quote:+.2f}, entry:{entry_price:.7f}, close:{close_price:.7f}, amount:{config.amount:.2f}, quote:{filled_amount_quote:.2f}, ' \
-                f'[{config.level_id}] {close_type}({entry_time}-{close_time})[{int(close_timestamp-start_timestamp)}s], id:{config.id}'
-        print(f'\033[92m{info}\033[0m' if net_pnl_quote > 0 else f'\033[91m{info}\033[0m')
+        # info = f'Pnl:{net_pnl_quote:+.2f}, entry:{entry_price:.7f}, close:{close_price:.7f}, amount:{config.amount:.2f}, quote:{filled_amount_quote:.2f}, ' \
+        #         f'[{config.level_id}] {close_type}({entry_time}-{close_time})[{int(close_timestamp-start_timestamp)}s], id:{config.id}'
+        # print(f'\033[92m{info}\033[0m' if net_pnl_quote > 0 else f'\033[91m{info}\033[0m')
         
         simulation = ExecutorSimulation(
             config=config,
@@ -445,21 +478,26 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
 
 class BacktestEngine(BacktestingEngineBase):
     
-    def __init__(self):
+    def __init__(self, batch: int = 1, base_dir: str = '.'):
         super().__init__()
-        self.backtesting_data_provider = CacheableBacktestingDataProvider(connectors={})
+        self.base_dir = base_dir
+        self.batch = batch
+        self.backtesting_data_provider = CacheableBacktestingDataProvider(connectors={}, base_dir=base_dir)
         
     def run_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
-                     backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float=0.001):
-        try:
-            __IPYTHON__
-            self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost, slippage)
-        except:
-            asyncio.run(self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost, slippage))
+                     backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float = 0.0001):
+        return asyncio.run(self.async_backtest(config_dir, config_path, start_date, end_date, backtest_resolution, trade_cost, slippage))
+    
+    def get_controller_config(self, config_dir: str, config_path: str):
+        return self.get_controller_config_instance_from_yml(controllers_conf_dir_path=config_dir, config_path=config_path)
     
     async def async_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
-                             backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float=0.001):
-        controller_config = self.get_controller_config_instance_from_yml(controllers_conf_dir_path=config_dir, config_path=config_path)
+                             backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float = 0.0001):
+        controller_config = self.get_controller_config(config_dir, config_path)
+        return await self.async_backtest_with_config(controller_config, start_date, end_date, backtest_resolution, trade_cost, slippage)
+    
+    async def async_backtest_with_config(self, controller_config: ControllerConfigBase, start_date: datetime, end_date: datetime, 
+                             backtest_resolution: str, trade_cost: float, slippage: float) -> BacktestResult:
         executor_refresh_time = 0
         if isinstance(controller_config, MarketMakingControllerConfigBase):
             executor_refresh_time = int(controller_config.executor_refresh_time)
@@ -469,7 +507,7 @@ class BacktestEngine(BacktestingEngineBase):
         result = await self.do_backtest(controller_config, start, end, executor_refresh_time, backtest_resolution, trade_cost, slippage)
         
         backtest_result = BacktestResult(result, controller_config, backtest_resolution, start_date, end_date, trade_cost, slippage)
-        print(backtest_result.get_results_summary())
+        print(f'[Batch-{self.batch}] {backtest_result.get_results_summary()}')
         
         return backtest_result
     
@@ -497,7 +535,7 @@ class BacktestEngine(BacktestingEngineBase):
         # processed_data will be recreated by MarketMakingControllerBase.update_processed_data() if not implemented by sub-class, so we keep it for backtest result
         market_data_features = self.controller.processed_data["features"]
         
-        print(f'Prepare market data:{int(time.time() - t)} seconds')
+        print(f'[Batch-{self.batch}] Prepare market data:{int(time.time() - t)} seconds')
         t = time.time()
         
         for i, row in market_data.iterrows():
@@ -524,12 +562,12 @@ class BacktestEngine(BacktestingEngineBase):
         
         executors_info = self.controller.executors_info
         
-        print(f'Simulation:{int(time.time() - t)} seconds')
+        print(f'[Batch-{self.batch}] Simulation:{int(time.time() - t)} seconds')
         t = time.time()
         
         results = self.summarize_results(executors_info, controller_config.total_amount_quote)
         
-        print(f'Summraize results:{int(time.time() - t)} seconds')
+        print(f'[Batch-{self.batch}] Summraize results:{int(time.time() - t)} seconds')
         
         self.controller.processed_data['features'] = market_data_features
         
@@ -538,4 +576,86 @@ class BacktestEngine(BacktestingEngineBase):
             "results": results,
             "processed_data": self.controller.processed_data,
         }
- 
+
+
+@dataclass
+class BacktestParam:
+    
+    batch: int
+    base_dir: str
+    config_dict: Dict
+    start_date: datetime
+    end_date: datetime
+    backtest_resolution: str
+    trade_cost: float
+    slippage: float
+    
+
+class ParamOptimization:
+    
+    async def run_one(self, backtest_param: BacktestParam):
+        controller_config = BacktestEngine.get_controller_config_instance_from_dict(backtest_param.config_dict)
+        return (
+            backtest_param, 
+            await BacktestEngine(backtest_param.batch, backtest_param.base_dir)
+                        .async_backtest_with_config(controller_config, backtest_param.start_date, backtest_param.end_date, 
+                                                    backtest_param.backtest_resolution, backtest_param.trade_cost, backtest_param.slippage)
+        )
+        
+    async def async_run_all(self, backtest_params: List[BacktestParam]):
+        backtest_param = backtest_params[0]
+        result_dir = os.path.join(backtest_param.base_dir, 'result')
+        start_time = datetime.fromtimestamp(backtest_param.start_date.timestamp()).strftime("%y%m%d%H%M%S")
+        end_time = datetime.fromtimestamp(backtest_param.end_date.timestamp()).strftime("%y%m%d%H%M%S")
+        result_file = f'{backtest_param.config_dict.get("trading_pair")}-{backtest_param.backtest_resolution}-{start_time}-{end_time}.csv'
+        if not os.path.exists(result_dir):
+            os.mkdir(result_dir)
+        
+        async with amp.Pool(processes = min(os.cpu_count()-1, 128)) as pool:
+            results = await pool.map(self.run_one, backtest_params)
+            
+            rows = []
+            for backtest_param, backtest_summary in results:
+                row = backtest_param.config_dict
+                row.update(backtest_summary.results)
+                del row["close_types"]
+                rows.append(row)
+                
+            result_df = pd.DataFrame(rows).sort_values("net_pnl", ascending=False)
+            result_df_cols = ['net_pnl'] + [col for col in result_df.columns if col != 'net_pnl']
+            result_df = result_df[result_df_cols]
+            result_df.to_csv(os.path.join(result_dir, result_file), index=False)
+    
+    def run(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
+            backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float = 0.0001):
+        base_config_dict = BacktestEngine.load_controller_config(config_path=config_path, controllers_conf_dir_path=config_dir)
+        trading_pair = base_config_dict.get('trading_pair')
+        candles_config = CandlesConfig(
+            connector=base_config_dict.get('connector_name'),
+            trading_pair=trading_pair,
+            interval=backtest_resolution
+        )
+        data_provider = CacheableBacktestingDataProvider(connectors={}, base_dir=config_dir)
+        
+        start_timestamp = start_date.timestamp()
+        end_timestamp = end_date.timestamp()
+        asyncio.run(data_provider.init_data(int(start_timestamp), int(end_timestamp), candles_config))
+        
+        backtest_params = []
+        batch = 0
+        
+        executor_refresh_time_space = range(60, 901, 60)
+        stop_loss_space = np.arange(0.02, 0.036, 0.005)
+        for executor_refresh_time in executor_refresh_time_space:
+            for stop_loss in stop_loss_space:
+                config_dict = base_config_dict.copy()
+                
+                config_dict['executor_refresh_time'] = executor_refresh_time
+                config_dict['stop_loss'] = stop_loss
+                
+                batch += 1
+                backtest_param = BacktestParam(batch, config_dir, config_dict, start_date, end_date, backtest_resolution, trade_cost, slippage)
+                backtest_params.append(backtest_param)
+        
+        asyncio.run(self.async_run_all(backtest_params))
+        

@@ -5,13 +5,17 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '../..'))
 
 from backtesting import backtest_engine
-from backtesting import backtesting_engine
 
 from datetime import datetime
 
 if __name__ == '__main__':
-    # engine1 = backtesting_engine.BacktestingEngine()
-    # engine1.run_backtest(current_dir, 'backtesting_pmm_trending_adaptive_v2_1.yml', datetime(2025, 5, 9), datetime(2025, 5, 10), '1m')
+    start_date = datetime(2025, 5, 15)
+    end_date = datetime(2025, 5, 17)
+
+    config_file = 'backtesting_pmm_trending_adaptive_v2_2.yml'
+
+    # engine = backtest_engine.BacktestEngine(batch=1, base_dir=current_dir)
+    # engine.run_backtest(current_dir, config_file, start_date, end_date, '1m')
     
-    engine = backtest_engine.BacktestEngine()
-    engine.run_backtest(current_dir, 'backtesting_pmm_trending_adaptive_v2_1.yml', datetime(2025, 5, 9), datetime(2025, 5, 10), '1m')
+    param_optimization = backtest_engine.ParamOptimization()
+    param_optimization.run(current_dir, config_file, start_date, end_date, '1m')

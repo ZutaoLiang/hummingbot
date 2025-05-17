@@ -95,4 +95,6 @@ coverage.xml
 
 .env
 
-*.parquet
+/**/data/*.parquet
+/**/data/*.pkl
+/**/result/*.csv
