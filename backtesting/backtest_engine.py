@@ -22,6 +22,8 @@ socket.socket = socks.socksocket
 import asyncio
 
 from hummingbot.core.data_type.common import TradeType
+from hummingbot.connector.connector_base import ConnectorBase
+from hummingbot.data_feed.candles_feed.data_types import CandlesConfig, HistoricalCandlesConfig
 from hummingbot.data_feed.candles_feed.candles_base import CandlesBase
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig
 from hummingbot.strategy_v2.controllers import ControllerConfigBase
@@ -29,6 +31,7 @@ from hummingbot.strategy_v2.models.executors import CloseType
 from hummingbot.strategy_v2.models.executors_info import ExecutorInfo
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, StopExecutorAction
 from hummingbot.strategy_v2.backtesting.executor_simulator_base import ExecutorSimulation, ExecutorSimulatorBase
+from hummingbot.strategy_v2.backtesting.backtesting_data_provider import BacktestingDataProvider
 from hummingbot.strategy_v2.backtesting.backtesting_engine_base import BacktestingEngineBase
 from hummingbot.strategy_v2.controllers.market_making_controller_base import MarketMakingControllerConfigBase
 
@@ -198,6 +201,57 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
         fig.update_yaxes(title_text="Price", row=1, col=1)
         fig.update_yaxes(title_text="PNL", row=2, col=1)
         return fig
+
+
+class CacheableBacktestingDataProvider(BacktestingDataProvider):
+    
+    def __init__(self, connectors: Dict[str, ConnectorBase]):
+        super().__init__(connectors)
+    
+    def update_start_end_time(self, start_time: int, end_time: int):
+        self.start_time = start_time
+        self.end_time = end_time
+    
+    def _get_local_file_name(self, key: str):
+        return f'{key}-{self.start_time}-{self.end_time}.parquet'
+    
+    def _load_from_local(self, key: str, dir: str ='./data'):
+        file_path = os.path.join(dir, self._get_local_file_name(key))
+        if not os.path.exists(file_path):
+            return pd.DataFrame()
+        
+        return pd.read_parquet(file_path, engine="pyarrow")
+    
+    def _save_to_local(self, df: pd.DataFrame, key: str, dir: str = './data'):
+        if not os.path.exists(dir):
+            os.mkdir(dir)
+        file_path = os.path.join(dir, self._get_local_file_name(key))
+        df.to_parquet(file_path, engine="pyarrow")
+        
+    def _filter_existing_feed(self, existing_feed: pd.DataFrame):
+        if existing_feed.empty:
+            return existing_feed
+        
+        existing_feed_start_time = existing_feed["timestamp"].min()
+        existing_feed_end_time = existing_feed["timestamp"].max()
+        if existing_feed_start_time <= self.start_time and existing_feed_end_time >= self.end_time:
+            return existing_feed[existing_feed["timestamp"] <= self.end_time]
+        else:
+            return pd.DataFrame()
+
+    async def get_candles_feed(self, config: CandlesConfig):
+        key = self._generate_candle_feed_key(config)
+        existing_feed = self._filter_existing_feed(self.candles_feeds.get(key, pd.DataFrame()))
+        if not existing_feed.empty:
+            return existing_feed
+        
+        candles_df = self._load_from_local(key)
+        if candles_df.empty:
+            candles_df = await super().get_candles_feed(config)
+            self._save_to_local(candles_df, key)
+        else:
+            self.candles_feeds[key] = candles_df
+        return self._filter_existing_feed(candles_df)
 
 
 class MyPositionExecutorSimulator(ExecutorSimulatorBase):
@@ -372,6 +426,7 @@ class BacktestEngine(BacktestingEngineBase):
     
     def __init__(self):
         super().__init__()
+        self.backtesting_data_provider = CacheableBacktestingDataProvider(connectors={})
         
     def run_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
                      backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float=0.001):
@@ -428,7 +483,7 @@ class BacktestEngine(BacktestingEngineBase):
             if len(controller_config.candles_config) > 0:
                 current_start = start - (450 * CandlesBase.interval_to_seconds[controller_config.candles_config[0].interval])
                 current_end = int(row["timestamp_bt"])
-                self.backtesting_data_provider.update_backtesting_time(current_start, current_end)
+                self.backtesting_data_provider.update_start_end_time(current_start, current_end)
                 
             await self.controller.update_processed_data()
             await self.update_state(row)
