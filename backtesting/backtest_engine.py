@@ -227,6 +227,7 @@ class CacheableBacktestingDataProvider(BacktestingDataProvider):
             os.mkdir(dir)
         file_path = os.path.join(dir, self._get_local_file_name(key))
         df.to_parquet(file_path, engine="pyarrow")
+        print(f'Saved {file_path}')
         
     def _filter_existing_feed(self, existing_feed: pd.DataFrame):
         if existing_feed.empty:

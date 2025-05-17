@@ -87,6 +87,7 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
         super().__init__(config, update_interval=self.config.sleep_interval, *args, **kwargs)
         self.update_data_interval = self.config.update_interval
         self.last_update_data_time = time.time() - self.update_data_interval - 10
+        self.last_candle_timestamp = 0
 
     async def update_processed_data(self):
         current_time = time.time()
@@ -98,6 +99,15 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
                                                            trading_pair=self.config.trading_pair,
                                                            interval=self.config.candle_interval,
                                                            max_records=self.max_records)
+        last_candle_timestamp = candles["timestamp"].max()
+        if last_candle_timestamp > self.last_candle_timestamp:
+            self.last_candle_timestamp = last_candle_timestamp
+            msg = f'Updating processed data up to {self.last_candle_timestamp} at {self.market_data_provider.time()}'
+            self.logger().info(msg)
+            print(msg)
+        else:
+            return
+        
         sma_short = ta.sma(candles["close"], length=self.config.sma_short_length, talib=False)
         sma = ta.sma(candles["close"], length=self.config.sma_length, talib=False)
         cci = ta.cci(candles["high"], candles["low"], candles["close"], length=self.config.cci_length, talib=False)
