@@ -94,7 +94,7 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
         if current_time - self.last_update_data_time < self.update_data_interval:
             return
         
-        self.logger().info(f"Updating data for {self.config.trading_pair} {self.config.candle_interval}")
+        self.logger().info(f"Updating candles for {self.config.trading_pair} {self.config.candle_interval}")
         candles = self.market_data_provider.get_candles_df(connector_name=self.config.connector_name,
                                                            trading_pair=self.config.trading_pair,
                                                            interval=self.config.candle_interval,
@@ -102,7 +102,7 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
         last_candle_timestamp = candles["timestamp"].max()
         if last_candle_timestamp > self.last_candle_timestamp:
             self.last_candle_timestamp = last_candle_timestamp
-            msg = f'Updating processed data up to {int(self.last_candle_timestamp)} at {int(self.market_data_provider.time())}'
+            msg = f'There are new candles, updating processed data up to {int(self.last_candle_timestamp)} at {int(self.market_data_provider.time())}'
             self.logger().info(msg)
             # print(msg)
         else:
