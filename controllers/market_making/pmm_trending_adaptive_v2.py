@@ -106,6 +106,8 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
             self.logger().info(msg)
             # print(msg)
         else:
+            if not self.config.backtesting:
+                self.last_update_data_time = current_time
             return
         
         sma_short = ta.sma(candles["close"], length=self.config.sma_short_length, talib=False)
