@@ -146,28 +146,48 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
     @staticmethod
     def _add_executors_trace(fig, executors: List[ExecutorInfo], row=1, col=1, line_style="solid"):
         for executor in executors:
-            entry_time = pd.to_datetime(executor.timestamp, unit='s') + pd.Timedelta(hours=local_timezone_offset_hours)
+            start_time = pd.to_datetime(executor.timestamp, unit='s') + pd.Timedelta(hours=local_timezone_offset_hours)
+            
+            entry_time = executor.custom_info.get("entry_timestamp", None)
+            if entry_time is not None:
+                entry_time = pd.to_datetime(entry_time, unit='s') + pd.Timedelta(hours=local_timezone_offset_hours)
+                
             entry_price = executor.custom_info["current_position_average_price"]
-            exit_time = pd.to_datetime(executor.close_timestamp, unit='s') + pd.Timedelta(hours=local_timezone_offset_hours)
+            end_time = pd.to_datetime(executor.close_timestamp, unit='s') + pd.Timedelta(hours=local_timezone_offset_hours)
             exit_price = executor.custom_info["close_price"]
             close_type = BacktestResult._map_close_type(executor.close_type)
             name = f"Buy-{close_type}" if executor.config.side == TradeType.BUY else f"Sell-{close_type}"
 
             if executor.filled_amount_quote == 0:
                 fig.add_trace(
-                    go.Scatter(x=[entry_time, exit_time], y=[entry_price, entry_price], mode='lines', showlegend=False,
+                    go.Scatter(x=[start_time, end_time], y=[entry_price, entry_price], mode='lines', showlegend=False,
                                line=dict(color='grey', width=2, dash=line_style if line_style == "dash" else None),
                                name=name), row=row, col=col)
             else:
                 if executor.net_pnl_quote > Decimal(0):
-                    fig.add_trace(go.Scatter(x=[entry_time, exit_time], y=[entry_price, exit_price], mode='lines',
+                    if entry_time is not None:
+                        fig.add_trace(go.Scatter(x=[start_time, entry_time], y=[entry_price, entry_price], mode='lines',
+                                             showlegend=True,
+                                             line=dict(color='blue', width=4,
+                                                       dash=line_style if line_style == "dash" else None), name=name), 
+                                      row=row, col=col)
+                        start_time = entry_time
+                    
+                    fig.add_trace(go.Scatter(x=[start_time, end_time], y=[entry_price, exit_price], mode='lines',
                                              showlegend=True,
                                              line=dict(color='green', width=4,
-                                                       dash=line_style if line_style == "dash" else None), name=name),
-                                  row=row,
-                                  col=col)
+                                                       dash=line_style if line_style == "dash" else None), name=name), 
+                                  row=row, col=col)
                 else:
-                    fig.add_trace(go.Scatter(x=[entry_time, exit_time], y=[entry_price, exit_price], mode='lines',
+                    if entry_time is not None:
+                        fig.add_trace(go.Scatter(x=[start_time, entry_time], y=[entry_price, entry_price], mode='lines',
+                                             showlegend=True,
+                                             line=dict(color='blue', width=4,
+                                                       dash=line_style if line_style == "dash" else None), name=name), 
+                                      row=row, col=col)
+                        start_time = entry_time
+                        
+                    fig.add_trace(go.Scatter(x=[start_time, end_time], y=[entry_price, exit_price], mode='lines',
                                              showlegend=True,
                                              line=dict(color='red', width=4,
                                                        dash=line_style if line_style == "dash" else None), name=name),

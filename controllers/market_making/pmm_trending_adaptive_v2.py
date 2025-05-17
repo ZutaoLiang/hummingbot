@@ -102,9 +102,9 @@ class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
         last_candle_timestamp = candles["timestamp"].max()
         if last_candle_timestamp > self.last_candle_timestamp:
             self.last_candle_timestamp = last_candle_timestamp
-            msg = f'Updating processed data up to {self.last_candle_timestamp} at {self.market_data_provider.time()}'
+            msg = f'Updating processed data up to {int(self.last_candle_timestamp)} at {int(self.market_data_provider.time())}'
             self.logger().info(msg)
-            print(msg)
+            # print(msg)
         else:
             return
         
