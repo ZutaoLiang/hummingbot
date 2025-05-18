@@ -227,6 +227,14 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
         return fig
 
 
+def index_and_sort_by_timestamp(df: pd.DataFrame):
+    if 'timestamp' in df.columns:
+        df['timestamp'] = df['timestamp'].astype('int64')
+        df = df.set_index('timestamp').sort_index(ascending=True)
+        df['timestamp'] = df.index
+    return df
+
+
 class CacheableBacktestingDataProvider(BacktestingDataProvider):
     
     def __init__(self, connectors: Dict[str, ConnectorBase], base_dir: str = '.'):
@@ -274,7 +282,7 @@ class CacheableBacktestingDataProvider(BacktestingDataProvider):
             return pd.DataFrame()
         
         # print(f'Loaded market data from {file_path}')
-        return pd.read_parquet(file_path, engine="pyarrow")
+        return index_and_sort_by_timestamp(pd.read_parquet(file_path, engine="pyarrow"))
     
     def _save_to_local(self, df: pd.DataFrame, key: str):
         if not os.path.exists(self.data_dir):
@@ -287,10 +295,13 @@ class CacheableBacktestingDataProvider(BacktestingDataProvider):
         if existing_feed.empty:
             return existing_feed
         
-        existing_feed_start_time = existing_feed["timestamp"].min()
-        existing_feed_end_time = existing_feed["timestamp"].max()
+        if 'timestamp' in existing_feed.columns:
+            existing_feed = index_and_sort_by_timestamp(existing_feed)
+        
+        existing_feed_start_time = existing_feed.index.min()
+        existing_feed_end_time = existing_feed.index.max()
         if existing_feed_start_time <= self.start_time and existing_feed_end_time >= self.end_time:
-            return existing_feed[existing_feed["timestamp"] <= self.end_time]
+            return index_and_sort_by_timestamp(existing_feed[existing_feed.index <= self.end_time])
         else:
             return pd.DataFrame()
 
@@ -314,10 +325,10 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
     def simulate(self, df: pd.DataFrame, config: PositionExecutorConfig, executor_refresh_time: int, trade_cost: float, slippage: float) -> ExecutorSimulation:
         if config.triple_barrier_config.open_order_type.is_limit_type():
             entry_condition = (df['low'] <= config.entry_price) if config.side == TradeType.BUY else (df['high'] >= config.entry_price)
-            start_timestamp = df[entry_condition]['timestamp'].min()
+            start_timestamp = df[entry_condition].index.min()
         else:
-            start_timestamp = df['timestamp'].min()
-        last_timestamp = df['timestamp'].max()
+            start_timestamp = df.index.min()
+        last_timestamp = df.index.max()
 
         # Set up barriers
         take_profit = float(config.triple_barrier_config.take_profit) if config.triple_barrier_config.take_profit else None
@@ -332,7 +343,7 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
         early_stop_timestamp = min(last_timestamp, config.timestamp + executor_refresh_time) if executor_refresh_time > 0 else last_timestamp
 
         # Filter dataframe based on the conditions
-        executor_simulation = df[df['timestamp'] <= time_limit_timestamp].copy()
+        executor_simulation = df[df.index <= time_limit_timestamp].copy()
         executor_simulation['net_pnl_pct'] = 0.0
         executor_simulation['net_pnl_quote'] = 0.0
         executor_simulation['cum_fees_quote'] = 0.0
@@ -343,20 +354,19 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
             return ExecutorSimulation(config=config, executor_simulation=executor_simulation, close_type=CloseType.TIME_LIMIT)
 
         if start_timestamp > early_stop_timestamp:
-            executor_simulation = executor_simulation[executor_simulation['timestamp'] <= early_stop_timestamp].copy()
+            executor_simulation = executor_simulation[executor_simulation.index <= early_stop_timestamp].copy()
             return ExecutorSimulation(config=config, executor_simulation=executor_simulation, close_type=CloseType.EARLY_STOP)
 
-        simulation_filterd = executor_simulation[executor_simulation['timestamp'] >= start_timestamp]
+        simulation_filterd = executor_simulation[executor_simulation.index >= start_timestamp]
         if simulation_filterd.empty:
             return ExecutorSimulation(config=config, executor_simulation=executor_simulation, close_type=CloseType.TIME_LIMIT)
         
         entry_time = datetime.fromtimestamp(start_timestamp).strftime("%m%d:%H%M")
-        last_timestamp = executor_simulation['timestamp'].max()
+        last_timestamp = executor_simulation.index.max()
         
-        # entry_price = df.loc[df['timestamp'] == start_timestamp, 'close'].values[0]
         entry_price = float(config.entry_price)
         
-        timestamps = simulation_filterd['timestamp'].values
+        timestamps = simulation_filterd.index.values
         lows = simulation_filterd['low'].values
         highs = simulation_filterd['high'].values
         closes = simulation_filterd['close'].values
@@ -451,13 +461,13 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
         else:
             close_timestamp = last_timestamp
         
-        executor_simulation = executor_simulation[executor_simulation['timestamp'] <= close_timestamp]
+        executor_simulation = executor_simulation[executor_simulation.index <= close_timestamp]
         
         filled_amount_quote = float(config.amount) * entry_price
         net_pnl_quote = filled_amount_quote * net_pnl_pct
         cum_fees_quote = filled_amount_quote * trade_cost
         
-        executor_simulation.loc[executor_simulation['timestamp'] >= start_timestamp, ['filled_amount_quote', 'cum_fees_quote']] = [filled_amount_quote, cum_fees_quote]
+        executor_simulation.loc[executor_simulation.index >= start_timestamp, ['filled_amount_quote', 'cum_fees_quote']] = [filled_amount_quote, cum_fees_quote]
         
         last_loc = executor_simulation.index[-1]
         executor_simulation.loc[last_loc, "net_pnl_pct"] = net_pnl_pct
@@ -603,7 +613,9 @@ class ParamSpace:
         self.level = level
     
     def generate(self, base_backtest_param: BacktestParam):
-        if self.level == 1:
+        if self.level == 0:
+            return [base_backtest_param]
+        elif self.level == 1:
             return self.generate_1(base_backtest_param)
         elif self.level == 100:
             return self.generate_100(base_backtest_param)
@@ -673,7 +685,7 @@ class ParamSpace:
 class ParamOptimization:
     
     def run(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
-            space_level: int = 1, backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float = 0.0001):
+            space_level: int = 0, backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float = 0.0001):
         t = time.time()
         base_config_dict = BacktestEngine.load_controller_config(config_path=config_path, controllers_conf_dir_path=config_dir)
         trading_pair = base_config_dict.get('trading_pair')
@@ -716,6 +728,10 @@ class ParamOptimization:
                 row.update(backtest_result.results)
                 del row["close_types"]
                 rows.append(row)
+            
+            if len(rows) == 0:
+                print('Empty results')
+                return
                 
             result_df = pd.DataFrame(rows).sort_values("net_pnl", ascending=False)
             result_df_cols = ['net_pnl','sharpe_ratio','profit_factor','accuracy','accuracy_long','accuracy_short','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','net_pnl_quote','total_executors','total_executors_with_position','total_volume','total_long','total_short','total_positions','max_drawdown_usd','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']

@@ -17,6 +17,6 @@ if __name__ == '__main__':
     # engine = backtest_engine.BacktestEngine(batch=1, base_dir=current_dir)
     # engine.run_backtest(current_dir, config_file, start_date, end_date, '1m')
     
-    space_level = 100
+    space_level = 0
     param_optimization = backtest_engine.ParamOptimization()
     param_optimization.run(current_dir, config_file, start_date, end_date, space_level, '1m')
