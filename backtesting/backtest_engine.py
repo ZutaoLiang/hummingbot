@@ -245,6 +245,8 @@ class CacheableBacktestingDataProvider(BacktestingDataProvider):
                     # print(f'Loaded {connector} trading rules from {file_path}')
                     self.trading_rules[connector] = pickle.load(f)
                     return
+        else:
+            return
         
         await super().initialize_trading_rules(connector)
         
@@ -628,12 +630,17 @@ class ParamOptimization:
         end_timestamp = end_date.timestamp()
         asyncio.run(data_provider.init_data(int(start_timestamp), int(end_timestamp), candles_config))
         
+        if 'candle_interval' in base_config_dict.keys():
+            candles_config.interval = base_config_dict['candle_interval']
+            asyncio.run(data_provider.init_data(int(start_timestamp), int(end_timestamp), candles_config))
+        
         backtest_params = []
         batch = 1
         
         executor_refresh_time_space = range(60, 901, 60)
         stop_loss_space = np.arange(0.02, 0.036, 0.005)
-        cooldown_time_space = np.arange(900, 3601, 900)
+        # cooldown_time_space = np.arange(900, 3601, 900)
+        spread_space = [[1, 1.5, 2], [1, 2, 3], [0.5, 1, 1.5], [2, 3, 4]]
         trailing_stop_space = np.arange(0.015, 0.026, 0.005)
         cci_threshold_space = np.arange(50, 101, 10)
         length_space = np.arange(10, 41, 10)
@@ -641,23 +648,26 @@ class ParamOptimization:
         
         for executor_refresh_time in executor_refresh_time_space:
             for stop_loss in stop_loss_space:
-                for trailing_stop in trailing_stop_space:
-                    for cci_threshold in cci_threshold_space:
-                        for length in length_space:
-                            for natr_length in natr_length_space:
-                                config_dict = base_config_dict.copy()
-                                
-                                config_dict['executor_refresh_time'] = executor_refresh_time
-                                config_dict['stop_loss'] = stop_loss
-                                config_dict['trailing_stop']['activation_price'] = trailing_stop
-                                config_dict['cci_threshold'] = cci_threshold
-                                config_dict['sma_length'] = length
-                                config_dict['cci_length'] = length
-                                config_dict['natr_length'] = natr_length
-                                
-                                backtest_param = BacktestParam(batch, config_dir, config_dict, start_date, end_date, backtest_resolution, trade_cost, slippage)
-                                backtest_params.append(backtest_param)
-                                batch += 1
+                for spread in spread_space:
+                    for trailing_stop in trailing_stop_space:
+                        for cci_threshold in cci_threshold_space:
+                            for length in length_space:
+                                for natr_length in natr_length_space:
+                                    config_dict = base_config_dict.copy()
+                                    
+                                    config_dict['executor_refresh_time'] = executor_refresh_time
+                                    config_dict['stop_loss'] = stop_loss
+                                    config_dict['buy_spreads'] = spread
+                                    config_dict['sell_spreads'] = spread
+                                    config_dict['trailing_stop']['activation_price'] = trailing_stop
+                                    config_dict['cci_threshold'] = cci_threshold
+                                    config_dict['sma_length'] = length
+                                    config_dict['cci_length'] = length
+                                    config_dict['natr_length'] = natr_length
+                                    
+                                    backtest_param = BacktestParam(batch, config_dir, config_dict, start_date, end_date, backtest_resolution, trade_cost, slippage)
+                                    backtest_params.append(backtest_param)
+                                    batch += 1
         
         print(f'Total param count:{len(backtest_params)}')
         
@@ -686,5 +696,5 @@ class ParamOptimization:
             result_df = result_df[result_df_cols]
             result_df.to_csv(os.path.join(result_dir, result_file), index=False)
         
-        print(f'Total time:{int(time.time() - t)}s')
-        
+        print(f'Total time:{int(time.time() - t)}s. Saved result to:{result_file}.')
+        exit(0)
