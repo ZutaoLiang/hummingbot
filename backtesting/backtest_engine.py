@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import numpy as np
 import pandas as pd
+import copy
 import pickle
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -60,7 +61,7 @@ class BacktestResult:
         self.trade_cost = trade_cost
         self.slippage = slippage
 
-    def get_results_summary(self, results: Optional[Dict] = None):
+    def get_results_summary(self, results: Optional[Dict] = None, msg: str = ''):
         if results is None:
             results = self.results
         net_pnl_quote = results["net_pnl_quote"]
@@ -81,7 +82,7 @@ class BacktestResult:
         trading_pair = self.controller_config.dict().get('trading_pair')
         return f"""
 =====================================================================================================================================    
-Backtest result for {trading_pair}({self.backtest_resolution}) From: {self.start_date} to: {self.end_date} with trade cost: {self.trade_cost:.2%} and slippage:{self.slippage:.2%}
+{msg}Backtest result for {trading_pair}({self.backtest_resolution}) From: {self.start_date} to: {self.end_date} with trade cost: {self.trade_cost:.2%} and slippage:{self.slippage:.2%}
 Net PNL: ${net_pnl_quote:.2f} ({net_pnl_pct*100:.2f}%) | Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct*100:.2f}%)
 Total Volume ($): {total_volume:.2f} | Sharpe Ratio: {sharpe_ratio:.2f} | Profit Factor: {profit_factor:.2f}
 Total Executors: {total_executors} | Accuracy Long: {accuracy_long:.2%} | Accuracy Short: {accuracy_short:.2%}
@@ -478,11 +479,12 @@ class MyPositionExecutorSimulator(ExecutorSimulatorBase):
 
 class BacktestEngine(BacktestingEngineBase):
     
-    def __init__(self, batch: int = 1, base_dir: str = '.'):
+    def __init__(self, batch: int = 1, base_dir: str = '.', print_detail: bool = False):
         super().__init__()
         self.base_dir = base_dir
         self.batch = batch
         self.backtesting_data_provider = CacheableBacktestingDataProvider(connectors={}, base_dir=base_dir)
+        self.print_detail = print_detail
         
     def run_backtest(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
                      backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float = 0.0001):
@@ -498,6 +500,7 @@ class BacktestEngine(BacktestingEngineBase):
     
     async def async_backtest_with_config(self, controller_config: ControllerConfigBase, start_date: datetime, end_date: datetime, 
                              backtest_resolution: str, trade_cost: float, slippage: float) -> BacktestResult:
+        t = time.time()
         executor_refresh_time = 0
         if isinstance(controller_config, MarketMakingControllerConfigBase):
             executor_refresh_time = int(controller_config.executor_refresh_time)
@@ -507,7 +510,7 @@ class BacktestEngine(BacktestingEngineBase):
         result = await self.do_backtest(controller_config, start, end, executor_refresh_time, backtest_resolution, trade_cost, slippage)
         
         backtest_result = BacktestResult(result, controller_config, backtest_resolution, start_date, end_date, trade_cost, slippage)
-        print(f'[Batch-{self.batch}] {backtest_result.get_results_summary()}')
+        print(backtest_result.get_results_summary(None, f"[Batch-{self.batch}(time:{int(time.time() - t)}s)]. "))
         
         return backtest_result
     
@@ -535,7 +538,8 @@ class BacktestEngine(BacktestingEngineBase):
         # processed_data will be recreated by MarketMakingControllerBase.update_processed_data() if not implemented by sub-class, so we keep it for backtest result
         market_data_features = self.controller.processed_data["features"]
         
-        print(f'[Batch-{self.batch}] Prepare market data:{int(time.time() - t)}s')
+        if self.print_detail:
+            print(f'[Batch-{self.batch}] Prepare market data:{int(time.time() - t)}s')
         t = time.time()
         
         for i, row in market_data.iterrows():
@@ -562,12 +566,14 @@ class BacktestEngine(BacktestingEngineBase):
         
         executors_info = self.controller.executors_info
         
-        print(f'[Batch-{self.batch}] Simulation:{int(time.time() - t)}s')
+        if self.print_detail:
+            print(f'[Batch-{self.batch}] Simulation:{int(time.time() - t)}s')
         t = time.time()
         
         results = self.summarize_results(executors_info, controller_config.total_amount_quote)
         
-        print(f'[Batch-{self.batch}] Summraize results:{int(time.time() - t)}s')
+        if self.print_detail:
+            print(f'[Batch-{self.batch}] Summraize results:{int(time.time() - t)}s')
         
         self.controller.processed_data['features'] = market_data_features
         
@@ -589,10 +595,136 @@ class BacktestParam:
     backtest_resolution: str
     trade_cost: float
     slippage: float
+
+
+class ParamSpace:
     
+    def __init__(self, level: int = 100):
+        self.level = level
+    
+    def generate(self, base_backtest_param: BacktestParam):
+        if self.level == 1:
+            return self.generate_1(base_backtest_param)
+        elif self.level == 100:
+            return self.generate_100(base_backtest_param)
+    
+    def generate_1(self, base_backtest_param: BacktestParam):
+        backtest_params = []
+        batch = 1
+        
+        executor_refresh_time_space = [60, 120, 180, 300, 600, 900, 1800]
+       
+        for executor_refresh_time in executor_refresh_time_space:
+            backtest_param = copy.deepcopy(base_backtest_param)
+            
+            config_dict = backtest_param.config_dict
+            config_dict['executor_refresh_time'] = executor_refresh_time
+
+            backtest_param.batch = batch
+            backtest_params.append(backtest_param)
+            batch += 1
+
+        return backtest_params
+
+    def generate_100(self, base_backtest_param: BacktestParam):
+        backtest_params = []
+        batch = 1
+        
+        executor_refresh_time_space = [60, 120, 180, 300, 600, 900, 1800]
+        take_profit_space = np.arange(0.04, 0.056, 0.005)
+        stop_loss_space = np.arange(0.02, 0.036, 0.005)
+        # cooldown_time_space = np.arange(900, 3601, 900)
+        spread_space = [[1, 1.5, 2], [1, 2, 3], [0.5, 1, 1.5], [2, 3, 4]]
+        trailing_stop_space = np.arange(0.015, 0.026, 0.005)
+        cci_threshold_space = np.arange(60, 101, 10)
+        length_space = np.arange(20, 41, 10)
+        natr_length_space = np.arange(7, 22, 7)
+        
+        for executor_refresh_time in executor_refresh_time_space:
+            for take_profit in take_profit_space:
+                for stop_loss in stop_loss_space:
+                    for spread in spread_space:
+                        for trailing_stop in trailing_stop_space:
+                            for cci_threshold in cci_threshold_space:
+                                for length in length_space:
+                                    for natr_length in natr_length_space:
+                                        
+                                        backtest_param = copy.deepcopy(base_backtest_param)
+                                        
+                                        config_dict = backtest_param.config_dict
+                                        config_dict['executor_refresh_time'] = executor_refresh_time
+                                        config_dict['take_profit'] = take_profit
+                                        config_dict['stop_loss'] = stop_loss
+                                        config_dict['buy_spreads'] = spread
+                                        config_dict['sell_spreads'] = spread
+                                        config_dict['trailing_stop']['activation_price'] = trailing_stop
+                                        config_dict['cci_threshold'] = cci_threshold
+                                        config_dict['sma_length'] = length
+                                        config_dict['cci_length'] = length
+                                        config_dict['natr_length'] = natr_length
+                                        
+                                        backtest_param.batch = batch
+                                        backtest_params.append(backtest_param)
+                                        batch += 1
+        
+        return backtest_params
+
 
 class ParamOptimization:
     
+    def run(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
+            space_level: int = 1, backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float = 0.0001):
+        t = time.time()
+        base_config_dict = BacktestEngine.load_controller_config(config_path=config_path, controllers_conf_dir_path=config_dir)
+        trading_pair = base_config_dict.get('trading_pair')
+        candles_config = CandlesConfig(
+            connector=base_config_dict.get('connector_name'),
+            trading_pair=trading_pair,
+            interval=backtest_resolution
+        )
+        data_provider = CacheableBacktestingDataProvider(connectors={}, base_dir=config_dir)
+        
+        start_timestamp = start_date.timestamp()
+        end_timestamp = end_date.timestamp()
+        asyncio.run(data_provider.init_data(int(start_timestamp), int(end_timestamp), candles_config))
+        
+        if 'candle_interval' in base_config_dict.keys():
+            candles_config.interval = base_config_dict['candle_interval']
+            asyncio.run(data_provider.init_data(int(start_timestamp), int(end_timestamp), candles_config))
+        
+        base_backtest_param = BacktestParam(0, config_dir, base_config_dict, start_date, end_date, backtest_resolution, trade_cost, slippage)
+        backtest_params = ParamSpace(space_level).generate(base_backtest_param)
+        print(f'Total param count:{len(backtest_params)}')
+        
+        result_dir = os.path.join(config_dir, 'result')
+        start_time = datetime.fromtimestamp(start_date.timestamp()).strftime("%y%m%d%H%M%S")
+        end_time = datetime.fromtimestamp(end_date.timestamp()).strftime("%y%m%d%H%M%S")
+        result_file = f'{trading_pair}-{backtest_resolution}-{start_time}-{end_time}.csv'
+        if not os.path.exists(result_dir):
+            os.mkdir(result_dir)
+        
+        print(f'Start running param optimization.')
+        with mp.Pool(processes = min(mp.cpu_count()-1, 230)) as pool:
+            results = pool.map(self.run_one, backtest_params)
+            
+            rows = []
+            for backtest_param, backtest_result in results:
+                if backtest_result is None:
+                    continue
+                
+                row = backtest_param.config_dict
+                row.update(backtest_result.results)
+                del row["close_types"]
+                rows.append(row)
+                
+            result_df = pd.DataFrame(rows).sort_values("net_pnl", ascending=False)
+            result_df_cols = ['net_pnl','sharpe_ratio','profit_factor','accuracy','accuracy_long','accuracy_short','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','net_pnl_quote','total_executors','total_executors_with_position','total_volume','total_long','total_short','total_positions','max_drawdown_usd','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']
+            result_df = result_df[result_df_cols]
+            result_df.to_csv(os.path.join(result_dir, result_file), index=False)
+        
+        print(f'Total time:{int(time.time() - t)}s. Saved result to:{result_file}')
+        exit(0)
+
     def run_one(self, backtest_param: BacktestParam):
         controller_config = BacktestEngine.get_controller_config_instance_from_dict(backtest_param.config_dict)
         
@@ -613,88 +745,4 @@ class ParamOptimization:
                 task.cancel()
             loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
             loop.close()
-    
-    def run(self, config_dir: str, config_path: str, start_date: datetime, end_date: datetime, 
-            backtest_resolution: str = '3m', trade_cost: float = 0.0005, slippage: float = 0.0001):
-        t = time.time()
-        base_config_dict = BacktestEngine.load_controller_config(config_path=config_path, controllers_conf_dir_path=config_dir)
-        trading_pair = base_config_dict.get('trading_pair')
-        candles_config = CandlesConfig(
-            connector=base_config_dict.get('connector_name'),
-            trading_pair=trading_pair,
-            interval=backtest_resolution
-        )
-        data_provider = CacheableBacktestingDataProvider(connectors={}, base_dir=config_dir)
-        
-        start_timestamp = start_date.timestamp()
-        end_timestamp = end_date.timestamp()
-        asyncio.run(data_provider.init_data(int(start_timestamp), int(end_timestamp), candles_config))
-        
-        if 'candle_interval' in base_config_dict.keys():
-            candles_config.interval = base_config_dict['candle_interval']
-            asyncio.run(data_provider.init_data(int(start_timestamp), int(end_timestamp), candles_config))
-        
-        backtest_params = []
-        batch = 1
-        
-        executor_refresh_time_space = range(60, 901, 60)
-        stop_loss_space = np.arange(0.02, 0.036, 0.005)
-        # cooldown_time_space = np.arange(900, 3601, 900)
-        spread_space = [[1, 1.5, 2], [1, 2, 3], [0.5, 1, 1.5], [2, 3, 4]]
-        trailing_stop_space = np.arange(0.015, 0.026, 0.005)
-        cci_threshold_space = np.arange(50, 101, 10)
-        length_space = np.arange(10, 41, 10)
-        natr_length_space = np.arange(7, 22, 7)
-        
-        for executor_refresh_time in executor_refresh_time_space:
-            for stop_loss in stop_loss_space:
-                for spread in spread_space:
-                    for trailing_stop in trailing_stop_space:
-                        for cci_threshold in cci_threshold_space:
-                            for length in length_space:
-                                for natr_length in natr_length_space:
-                                    config_dict = base_config_dict.copy()
-                                    
-                                    config_dict['executor_refresh_time'] = executor_refresh_time
-                                    config_dict['stop_loss'] = stop_loss
-                                    config_dict['buy_spreads'] = spread
-                                    config_dict['sell_spreads'] = spread
-                                    config_dict['trailing_stop']['activation_price'] = trailing_stop
-                                    config_dict['cci_threshold'] = cci_threshold
-                                    config_dict['sma_length'] = length
-                                    config_dict['cci_length'] = length
-                                    config_dict['natr_length'] = natr_length
-                                    
-                                    backtest_param = BacktestParam(batch, config_dir, config_dict, start_date, end_date, backtest_resolution, trade_cost, slippage)
-                                    backtest_params.append(backtest_param)
-                                    batch += 1
-        
-        print(f'Total param count:{len(backtest_params)}')
-        
-        result_dir = os.path.join(config_dir, 'result')
-        start_time = datetime.fromtimestamp(start_date.timestamp()).strftime("%y%m%d%H%M%S")
-        end_time = datetime.fromtimestamp(end_date.timestamp()).strftime("%y%m%d%H%M%S")
-        result_file = f'{trading_pair}-{backtest_resolution}-{start_time}-{end_time}.csv'
-        if not os.path.exists(result_dir):
-            os.mkdir(result_dir)
-        
-        with mp.Pool(processes = min(mp.cpu_count()-1, 220)) as pool:
-            results = pool.map(self.run_one, backtest_params)
-            
-            rows = []
-            for backtest_param, backtest_result in results:
-                if backtest_result is None:
-                    continue
-                
-                row = backtest_param.config_dict
-                row.update(backtest_result.results)
-                del row["close_types"]
-                rows.append(row)
-                
-            result_df = pd.DataFrame(rows).sort_values("net_pnl", ascending=False)
-            result_df_cols = ['net_pnl'] + [col for col in result_df.columns if col != 'net_pnl']
-            result_df = result_df[result_df_cols]
-            result_df.to_csv(os.path.join(result_dir, result_file), index=False)
-        
-        print(f'Total time:{int(time.time() - t)}s. Saved result to:{result_file}.')
-        exit(0)
+ 
