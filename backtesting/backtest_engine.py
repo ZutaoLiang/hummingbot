@@ -633,17 +633,33 @@ class ParamOptimization:
         
         executor_refresh_time_space = range(60, 901, 60)
         stop_loss_space = np.arange(0.02, 0.036, 0.005)
-        trailing_stop_loss_space = np.arange(0.015, 0.026, 0.005) # TODO
+        cooldown_time_space = np.arange(900, 3601, 900)
+        trailing_stop_space = np.arange(0.015, 0.026, 0.005)
+        cci_threshold_space = np.arange(50, 101, 10)
+        length_space = np.arange(10, 41, 10)
+        natr_length_space = np.arange(7, 22, 7)
+        
         for executor_refresh_time in executor_refresh_time_space:
             for stop_loss in stop_loss_space:
-                config_dict = base_config_dict.copy()
-                
-                config_dict['executor_refresh_time'] = executor_refresh_time
-                config_dict['stop_loss'] = stop_loss
-                
-                backtest_param = BacktestParam(batch, config_dir, config_dict, start_date, end_date, backtest_resolution, trade_cost, slippage)
-                backtest_params.append(backtest_param)
-                batch += 1
+                for trailing_stop in trailing_stop_space:
+                    for cci_threshold in cci_threshold_space:
+                        for length in length_space:
+                            for natr_length in natr_length_space:
+                                config_dict = base_config_dict.copy()
+                                
+                                config_dict['executor_refresh_time'] = executor_refresh_time
+                                config_dict['stop_loss'] = stop_loss
+                                config_dict['trailing_stop']['activation_price'] = trailing_stop
+                                config_dict['cci_threshold'] = cci_threshold
+                                config_dict['sma_length'] = length
+                                config_dict['cci_length'] = length
+                                config_dict['natr_length'] = natr_length
+                                
+                                backtest_param = BacktestParam(batch, config_dir, config_dict, start_date, end_date, backtest_resolution, trade_cost, slippage)
+                                backtest_params.append(backtest_param)
+                                batch += 1
+        
+        print(f'Total param count:{len(backtest_params)}')
         
         result_dir = os.path.join(config_dir, 'result')
         start_time = datetime.fromtimestamp(start_date.timestamp()).strftime("%y%m%d%H%M%S")
@@ -652,7 +668,7 @@ class ParamOptimization:
         if not os.path.exists(result_dir):
             os.mkdir(result_dir)
         
-        with mp.Pool(processes = min(mp.cpu_count()-1, 128)) as pool:
+        with mp.Pool(processes = min(mp.cpu_count()-1, 220)) as pool:
             results = pool.map(self.run_one, backtest_params)
             
             rows = []
