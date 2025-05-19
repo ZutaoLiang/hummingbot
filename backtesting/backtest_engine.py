@@ -624,7 +624,7 @@ class ParamSpace:
         backtest_params = []
         batch = 1
         
-        executor_refresh_time_space = [60, 120, 180, 300, 600, 900, 1800]
+        executor_refresh_time_space = [60, 120, 180]
        
         for executor_refresh_time in executor_refresh_time_space:
             backtest_param = copy.deepcopy(base_backtest_param)
@@ -642,13 +642,13 @@ class ParamSpace:
         backtest_params = []
         batch = 1
         
-        executor_refresh_time_space = [60, 120, 180, 300, 600, 900, 1800]
-        take_profit_space = np.arange(0.04, 0.056, 0.005)
+        executor_refresh_time_space = [60, 120, 180, 300, 600, 900]
+        take_profit_space = np.arange(0.04, 0.051, 0.005)
         stop_loss_space = np.arange(0.02, 0.036, 0.005)
         # cooldown_time_space = np.arange(900, 3601, 900)
-        spread_space = [[1, 1.5, 2], [1, 2, 3], [0.5, 1, 1.5], [2, 3, 4]]
+        spread_space = [[1, 1.5, 2], [1, 2, 3], [0.5, 1, 1.5]]
         trailing_stop_space = np.arange(0.015, 0.026, 0.005)
-        cci_threshold_space = np.arange(60, 101, 10)
+        cci_threshold_space = np.arange(60, 101, 20)
         length_space = np.arange(20, 41, 10)
         natr_length_space = np.arange(7, 22, 7)
         
@@ -716,8 +716,9 @@ class ParamOptimization:
             os.mkdir(result_dir)
         
         print(f'Start running param optimization.')
-        with mp.Pool(processes = min(mp.cpu_count()-1, 230)) as pool:
-            results = pool.map(self.run_one, backtest_params)
+        cpus = min(mp.cpu_count()-1, 230)
+        with mp.Pool(processes = cpus, maxtasksperchild=50) as pool:
+            results = pool.map(self.run_one, backtest_params, chunksize=cpus)
             
             rows = []
             for backtest_param, backtest_result in results:
@@ -737,18 +738,25 @@ class ParamOptimization:
             result_df_cols = ['net_pnl','sharpe_ratio','profit_factor','accuracy','accuracy_long','accuracy_short','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','net_pnl_quote','total_executors','total_executors_with_position','total_volume','total_long','total_short','total_positions','max_drawdown_usd','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']
             result_df = result_df[result_df_cols]
             result_df.to_csv(os.path.join(result_dir, result_file), index=False)
-        
+            
+            top_ratio_list = [0.05, 0.1, 0.2, 0.3, 0.5]
+            total_count = len(result_df)
+            for top_ratio in top_ratio_list:
+                top_count = round(total_count * top_ratio)
+                if top_count > 0 and total_count >= top_count:
+                    description = result_df.head(top_count)[['buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier']].describe()
+                    print(f'Top {top_ratio:.2%}({top_count}/{total_count})\n:{description}\n')
+            
         print(f'Total time:{int(time.time() - t)}s. Saved result to:{result_file}')
         exit(0)
 
     def run_one(self, backtest_param: BacktestParam):
-        controller_config = BacktestEngine.get_controller_config_instance_from_dict(backtest_param.config_dict)
-        
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
         try:
             backtest_engine = BacktestEngine(backtest_param.batch, backtest_param.base_dir)
+            controller_config = backtest_engine.get_controller_config_instance_from_dict(backtest_param.config_dict)
             backtest_result = loop.run_until_complete(backtest_engine.async_backtest_with_config(controller_config, backtest_param.start_date, backtest_param.end_date, 
                                                     backtest_param.backtest_resolution, backtest_param.trade_cost, backtest_param.slippage))
             return (backtest_param, backtest_result)
@@ -756,9 +764,26 @@ class ParamOptimization:
             print(f'{backtest_param} Exception: {e}')
             return (backtest_param, None)
         finally:
-            tasks = asyncio.all_tasks(loop)
-            for task in tasks:
-                task.cancel()
-            loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+            pending_tasks = asyncio.all_tasks(loop)
+            if pending_tasks:
+                for task in pending_tasks:
+                    task.cancel()
+                
+                try:
+                    loop.run_until_complete(
+                        asyncio.wait_for(
+                            asyncio.gather(*pending_tasks, return_exceptions=True),
+                            timeout=5
+                        )
+                    )
+                except asyncio.TimeoutError:
+                    print(f"Timeout waiting for tasks to cancel in backtest {backtest_param}")
+            
+            loop.run_until_complete(loop.shutdown_asyncgens())
             loop.close()
+            
+            # for task in asyncio.all_tasks(loop):
+            #     task.cancel()
+            # loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(loop), return_exceptions=True))
+            # loop.close()
  
