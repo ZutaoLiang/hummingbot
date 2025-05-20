@@ -23,7 +23,7 @@ socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", 10810)
 socket.socket = socks.socksocket
 
 import asyncio
-import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor
 
 from hummingbot.core.data_type.common import TradeType
 from hummingbot.connector.connector_base import ConnectorBase
@@ -716,9 +716,9 @@ class ParamOptimization:
             os.mkdir(result_dir)
         
         print(f'Start running param optimization.')
-        cpus = min(mp.cpu_count()-1, 230)
-        with mp.Pool(processes = cpus, maxtasksperchild=50) as pool:
-            results = pool.map(self.run_one, backtest_params, chunksize=cpus)
+        cpus = min(os.cpu_count()-1, 230)
+        with ProcessPoolExecutor(max_workers=cpus) as pool:
+            results = list(pool.map(self.run_one, backtest_params))
             
             rows = []
             for backtest_param, backtest_result in results:
@@ -754,36 +754,21 @@ class ParamOptimization:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
+        backtest_result = None
         try:
             backtest_engine = BacktestEngine(backtest_param.batch, backtest_param.base_dir)
             controller_config = backtest_engine.get_controller_config_instance_from_dict(backtest_param.config_dict)
             backtest_result = loop.run_until_complete(backtest_engine.async_backtest_with_config(controller_config, backtest_param.start_date, backtest_param.end_date, 
                                                     backtest_param.backtest_resolution, backtest_param.trade_cost, backtest_param.slippage))
+            
+            for task in asyncio.all_tasks(loop):
+                task.cancel()
+            
             return (backtest_param, backtest_result)
         except Exception as e:
             print(f'{backtest_param} Exception: {e}')
-            return (backtest_param, None)
+            return (backtest_param, backtest_result)
         finally:
-            pending_tasks = asyncio.all_tasks(loop)
-            if pending_tasks:
-                for task in pending_tasks:
-                    task.cancel()
-                
-                try:
-                    loop.run_until_complete(
-                        asyncio.wait_for(
-                            asyncio.gather(*pending_tasks, return_exceptions=True),
-                            timeout=5
-                        )
-                    )
-                except asyncio.TimeoutError:
-                    print(f"Timeout waiting for tasks to cancel in backtest {backtest_param}")
-            
-            loop.run_until_complete(loop.shutdown_asyncgens())
+            loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(loop), return_exceptions=True))
             loop.close()
-            
-            # for task in asyncio.all_tasks(loop):
-            #     task.cancel()
-            # loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(loop), return_exceptions=True))
-            # loop.close()
  
