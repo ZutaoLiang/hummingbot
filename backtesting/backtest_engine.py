@@ -733,7 +733,8 @@ class ParamOptimization:
             if len(rows) == 0:
                 print('Empty results')
                 return
-                
+            
+            pd.set_option('display.max_columns', None)
             result_df = pd.DataFrame(rows).sort_values("net_pnl", ascending=False)
             result_df_cols = ['net_pnl','sharpe_ratio','profit_factor','accuracy','accuracy_long','accuracy_short','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','net_pnl_quote','total_executors','total_executors_with_position','total_volume','total_long','total_short','total_positions','max_drawdown_usd','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']
             result_df = result_df[result_df_cols]
@@ -744,7 +745,7 @@ class ParamOptimization:
             for top_ratio in top_ratio_list:
                 top_count = round(total_count * top_ratio)
                 if top_count > 0 and total_count >= top_count:
-                    description = result_df.head(top_count)[['buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier']].describe()
+                    description = result_df.head(top_count)[['buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier']].describe(include='all')
                     print(f'Top {top_ratio:.2%}({top_count}/{total_count})\n:{description}\n')
             
         print(f'Total time:{int(time.time() - t)}s. Saved result to:{result_file}')
