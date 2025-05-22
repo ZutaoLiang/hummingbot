@@ -1,0 +1,48 @@
+buy_amounts_pct:
+- 0.1
+- 0.2
+- 0.2
+buy_spreads:
+- 1
+- 2
+- 3
+sell_amounts_pct:
+- 0.1
+- 0.2
+- 0.2
+sell_spreads:
+- 1
+- 2
+- 3
+candles_config: []
+connector_name: binance_perpetual
+controller_name: pmm_trending_adaptive_v3
+controller_type: market_making
+cooldown_time: 1800
+executor_refresh_time: 60
+id: voxel-usdt_0.1
+leverage: 20
+manual_kill_switch: false
+position_mode: HEDGE
+stop_loss: 0.03
+take_profit: 0.05
+take_profit_order_type: 2
+time_limit: 86400
+total_amount_quote: 100
+trading_pair: 1000PEPE-USDC
+trailing_stop:
+  activation_price: 0.018
+  trailing_delta: 0.002
+sleep_interval: 5
+update_interval: 180
+candle_interval: 15m
+sma_short_length: 10
+sma_length: 30
+cci_length: 30
+cci_threshold: 100
+natr_length: 21
+widen_spread_multiplier: 3
+narrow_spread_multiplier: 1
+early_stop_activation_price_min: 0.008
+early_stop_decrease_interval: 1800
+backtesting: true
