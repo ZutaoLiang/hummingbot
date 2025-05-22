@@ -140,7 +140,7 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
             self.logger().info(f"Down trend => candle_close:{candle_close:.5f} < candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
                                f"candle_cci:{candle_cci:.1f} < threshold:{-self.config.cci_threshold:.1f}")
         
-        reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
+        reference_price = self.market_data_provider.get_price_by_type(self.config.candles_config[0].connector, self.config.trading_pair, PriceType.MidPrice)
         
         self.processed_data.update(
             {
