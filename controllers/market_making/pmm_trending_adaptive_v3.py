@@ -104,7 +104,7 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
             return
         
         self.logger().info(f"Updating candles for {self.config.trading_pair} {self.config.candle_interval}")
-        candles = self.market_data_provider.get_candles_df(connector_name=self.config.connector_name,
+        candles = self.market_data_provider.get_candles_df(connector_name=self.config.candles_config[0].connector,
                                                            trading_pair=self.config.trading_pair,
                                                            interval=self.config.candle_interval,
                                                            max_records=self.max_records)
