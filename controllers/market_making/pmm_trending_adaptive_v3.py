@@ -16,7 +16,7 @@ from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction,
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TrailingStop, TripleBarrierConfig
 
 
-class PMMTrendingAdaptiveV2ControllerConfig(MarketMakingControllerConfigBase):
+class PMMTrendingAdaptiveV3ControllerConfig(MarketMakingControllerConfigBase):
     controller_name: str = "pmm_trending_adaptive_v3"
     candles_config: List[CandlesConfig] = []
     buy_spreads: List[float] = Field(
@@ -78,17 +78,17 @@ class PMMTrendingAdaptiveV2ControllerConfig(MarketMakingControllerConfigBase):
     backtesting: bool = Field(default=False, json_schema_extra={"is_updatable": True})
 
 
-class PMMTrendingAdaptiveV2Controller(MarketMakingControllerBase):
+class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
     """
     This is a dynamic version of the PMM controller.It uses the SMA and ADX to shift the mid-price 
     and the NATR to make the spreads dynamic. It also uses the Triple Barrier Strategy to manage the risk.
     """
-    def __init__(self, config: PMMTrendingAdaptiveV2ControllerConfig, *args, **kwargs):
+    def __init__(self, config: PMMTrendingAdaptiveV3ControllerConfig, *args, **kwargs):
         self.config = config
         self.max_records = max(config.sma_length, config.cci_length, config.natr_length) + 100
         if len(self.config.candles_config) == 0:
             self.config.candles_config = [CandlesConfig(
-                connector=config.connector_name,
+                connector="binance_perpetual",
                 trading_pair=config.trading_pair,
                 interval=config.candle_interval,
                 max_records=self.max_records
