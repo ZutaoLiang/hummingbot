@@ -43,6 +43,6 @@ cci_threshold: 100
 natr_length: 21
 widen_spread_multiplier: 3
 narrow_spread_multiplier: 1
-early_stop_activation_price_min: 0.008
+early_stop_activation_price_min: 0.006
 early_stop_decrease_interval: 1800
 backtesting: true

@@ -251,12 +251,14 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
                 msg = f'Add {executor_info} to early stop, pnl:{executor_info.net_pnl_pct:.2%}, threshold:{early_take_profit:.2f}, execution_time:{execution_time}s'
                 executors_to_early_stop.append(executor_info)
                 self.logger().info(msg)
-                # print(msg)
+                if self.config.backtesting:
+                    print(msg)
         
         if len(executors_to_early_stop) > 0:
             msg = f'Added {len(executors_to_early_stop)} executors to early stop'
             self.logger().info(msg)
-            # print(msg)
+            if self.config.backtesting:
+                print(msg)
         
         return [StopExecutorAction(
             controller_id=self.config.id,

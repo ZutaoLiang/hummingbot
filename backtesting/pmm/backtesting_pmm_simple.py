@@ -4,7 +4,7 @@ import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '../..'))
 
-from backtesting import backtesting_engine
+from backtesting.legacy import backtesting_engine
 
 from datetime import datetime
 
