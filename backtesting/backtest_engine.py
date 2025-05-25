@@ -31,6 +31,7 @@ from hummingbot.data_feed.candles_feed.data_types import CandlesConfig, Historic
 from hummingbot.data_feed.candles_feed.candles_base import CandlesBase
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig
 from hummingbot.strategy_v2.controllers import ControllerConfigBase
+from hummingbot.strategy_v2.models.base import RunnableStatus
 from hummingbot.strategy_v2.models.executors import CloseType
 from hummingbot.strategy_v2.models.executors_info import ExecutorInfo
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, StopExecutorAction
@@ -38,6 +39,7 @@ from hummingbot.strategy_v2.backtesting.executor_simulator_base import ExecutorS
 from hummingbot.strategy_v2.backtesting.backtesting_data_provider import BacktestingDataProvider
 from hummingbot.strategy_v2.backtesting.backtesting_engine_base import BacktestingEngineBase
 from hummingbot.strategy_v2.controllers.market_making_controller_base import MarketMakingControllerConfigBase
+from backtesting.executor.mock_position_executor import MockPositionExecutor
 
 local_timezone_offset_hours = 8
 
@@ -524,7 +526,7 @@ class BacktestEngine(BacktestingEngineBase):
         
         return backtest_result
     
-    async def do_backtest(self,
+    async def do_backtest_v1(self,
                           controller_config: ControllerConfigBase,
                           start: int, end: int,
                           executor_refresh_time: int,
@@ -591,8 +593,113 @@ class BacktestEngine(BacktestingEngineBase):
             "executors": executors_info,
             "results": results,
             "processed_data": self.controller.processed_data,
-        }
+        }  
 
+    async def do_backtest(self,
+                          controller_config: ControllerConfigBase,
+                          start: int, end: int,
+                          executor_refresh_time: int,
+                          backtesting_resolution: str = "1m",
+                          trade_cost=0.0006, slippage: float=0.001):
+        self.backtesting_resolution = backtesting_resolution
+        
+        t = time.time()
+        self.backtesting_data_provider.update_backtesting_time(start, end)
+        await self.backtesting_data_provider.initialize_trading_rules(controller_config.connector_name)
+        
+        controller_class = controller_config.get_controller_class()
+        self.controller = controller_class(config=controller_config, market_data_provider=self.backtesting_data_provider, actions_queue=None)
+        
+        await self.initialize_backtesting_data_provider()
+        
+        market_data = self.prepare_market_data()
+        # processed_data will be recreated by MarketMakingControllerBase.update_processed_data() if not implemented by sub-class, so we keep it for backtest result
+        market_data_features = self.controller.processed_data["features"]
+        
+        if self.print_detail:
+            print(f'[Batch-{self.batch}] Prepare market data:{int(time.time() - t)}s')
+        t = time.time()
+        
+        active_executors: Dict[str, MockPositionExecutor] = {}
+        stopped_executors_info: List[ExecutorInfo] = []
+        
+        for i, row in market_data.iterrows():
+            if len(controller_config.candles_config) > 0:
+                current_start = start - (450 * CandlesBase.interval_to_seconds[controller_config.candles_config[0].interval])
+                current_end = int(row["timestamp_bt"])
+                self.backtesting_data_provider.update_start_end_time(current_start, current_end)
+                
+            await self.controller.update_processed_data()
+            
+            self.update_to_market_data(row)
+            
+            active_executors_info: List[ExecutorInfo] = []
+            for executor_id, executor in list(active_executors.items()):
+                active = executor.on_market_data(row)
+                if active:
+                    active_executors_info.append(executor.executor_info)
+                else:
+                    del active_executors[executor_id]
+                    stopped_executors_info.append(executor.executor_info)
+            
+            self.controller.executors_info = active_executors_info + stopped_executors_info
+            
+            actions = self.controller.determine_executor_actions()
+            
+            # process create actions
+            for action in actions:
+                if not isinstance(action, CreateExecutorAction):
+                    continue
+                executor_id = action.executor_config.id
+                position_execurtor = MockPositionExecutor(
+                    config=action.executor_config,
+                    market_data_provider=self.backtesting_data_provider,
+                    trade_cost=trade_cost
+                )
+                active_executors[executor_id] = position_execurtor
+                position_execurtor.on_market_data(row)
+            
+            # process stop actions
+            for action in actions:
+                if not isinstance(action, StopExecutorAction):
+                    continue
+                for executor_id, executor in list(active_executors.items()):
+                    if not executor_id == action.executor_id:
+                        continue
+                    executor.stop()
+                    del active_executors[executor_id]
+                    stopped_executors_info.append(executor.executor_info)
+        
+        # stop all active executors
+        for executor_id, executor in list(active_executors.items()):
+            executor.stop()
+            stopped_executors_info.append(executor.executor_info)
+        
+        self.controller.executors_info = stopped_executors_info
+        
+        if self.print_detail:
+            print(f'[Batch-{self.batch}] Simulation:{int(time.time() - t)}s')
+        t = time.time()
+        
+        results = self.summarize_results(self.controller.executors_info, controller_config.total_amount_quote)
+        
+        if self.print_detail:
+            print(f'[Batch-{self.batch}] Summraize results:{int(time.time() - t)}s')
+        
+        self.controller.processed_data['features'] = market_data_features
+        
+        return {
+            "executors": self.controller.executors_info,
+            "results": results,
+            "processed_data": self.controller.processed_data,
+        }
+    
+    def update_to_market_data(self, row):
+        key = f"{self.controller.config.connector_name}_{self.controller.config.trading_pair}"
+        self.controller.market_data_provider.prices = {key: Decimal(row["close_bt"])}
+        self.controller.market_data_provider._time = row["timestamp"]
+        self.controller.processed_data.update(row.to_dict())
+  
 
 @dataclass
 class BacktestParam:

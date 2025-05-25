@@ -100,8 +100,9 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
 
     async def update_processed_data(self):
         current_time = time.time()
-        if current_time - self.last_update_data_time < self.update_data_interval:
-            return
+        if not self.config.backtesting:
+            if current_time - self.last_update_data_time < self.update_data_interval:
+                return
         
         self.logger().info(f"Updating candles for {self.config.trading_pair} {self.config.candle_interval}")
         candles = self.market_data_provider.get_candles_df(connector_name=self.config.connector_name,
@@ -237,25 +238,24 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
     def executors_to_early_stop(self) -> List[ExecutorAction]:
         executors_to_early_stop = []
         
-        
         for executor_info in self.executors_info:
             execution_time = self.market_data_provider.time() - executor_info.timestamp
             time_factor = round(execution_time / float(self.config.early_stop_decrease_interval), 1)
             if time_factor < 1:
                 continue
             
-            if not executor_info.is_active and not executor_info.is_trading:
+            if not executor_info.is_active or not executor_info.is_trading:
                 continue
             early_take_profit = max(self.config.take_profit / Decimal(time_factor), self.config.early_stop_activation_price_min)
             if executor_info.net_pnl_pct > early_take_profit:
-                msg = f'Add {executor_info} to early stop, pnl:{executor_info.net_pnl_pct:.2%}, threshold:{early_take_profit:.2f}, execution_time:{execution_time}s'
+                msg = f'Add {executor_info} to early take profit, pnl:{executor_info.net_pnl_pct:.2%}, threshold:{early_take_profit:.2f}, execution_time:{execution_time}s'
                 executors_to_early_stop.append(executor_info)
                 self.logger().info(msg)
                 if self.config.backtesting:
                     print(msg)
         
         if len(executors_to_early_stop) > 0:
-            msg = f'Added {len(executors_to_early_stop)} executors to early stop'
+            msg = f'Added {len(executors_to_early_stop)} executors to early take profit'
             self.logger().info(msg)
             if self.config.backtesting:
                 print(msg)
