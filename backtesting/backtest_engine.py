@@ -128,7 +128,7 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
         )
 
     @staticmethod
-    def _get_default_layout(title=None, height=800, width=1200):
+    def _get_default_layout(title=None, height=800, width=1750):
         layout = {
             "template": "plotly_dark",
             "plot_bgcolor": 'rgba(0, 0, 0, 0)',  # Transparent background
@@ -167,7 +167,7 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
             if executor.filled_amount_quote == 0:
                 fig.add_trace(
                     go.Scatter(x=[start_time, end_time], y=[entry_price, entry_price], mode='lines', showlegend=False,
-                               line=dict(color='grey', width=2, dash=line_style if line_style == "dash" else None),
+                               line=dict(color='grey', width=3, dash=line_style if line_style == "dash" else None),
                                name=name), row=row, col=col)
             else:
                 if executor.net_pnl_quote > Decimal(0):
@@ -179,9 +179,15 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
                                       row=row, col=col)
                         start_time = entry_time
                     
+                    color = 'green'
+                    if executor.close_type == CloseType.TAKE_PROFIT:
+                        color = 'olive'
+                    elif executor.close_type == CloseType.EARLY_STOP:
+                        color = 'lime'
+                        
                     fig.add_trace(go.Scatter(x=[start_time, end_time], y=[entry_price, exit_price], mode='lines',
                                              showlegend=True,
-                                             line=dict(color='green', width=4,
+                                             line=dict(color=color, width=4,
                                                        dash=line_style if line_style == "dash" else None), name=name), 
                                   row=row, col=col)
                 else:
@@ -192,10 +198,14 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
                                                        dash=line_style if line_style == "dash" else None), name=name), 
                                       row=row, col=col)
                         start_time = entry_time
+                    
+                    color = 'red' # stop loss
+                    if executor.close_type == CloseType.TIME_LIMIT:
+                        color = 'darkred'
                         
                     fig.add_trace(go.Scatter(x=[start_time, end_time], y=[entry_price, exit_price], mode='lines',
                                              showlegend=True,
-                                             line=dict(color='red', width=4,
+                                             line=dict(color=color, width=4,
                                                        dash=line_style if line_style == "dash" else None), name=name),
                                   row=row, col=col)
 
@@ -303,7 +313,7 @@ class CacheableBacktestingDataProvider(BacktestingDataProvider):
         existing_feed_start_time = existing_feed.index.min()
         existing_feed_end_time = existing_feed.index.max()
         if existing_feed_start_time <= self.start_time and existing_feed_end_time >= self.end_time:
-            return index_and_sort_by_timestamp(existing_feed[existing_feed.index <= self.end_time])
+            return index_and_sort_by_timestamp(existing_feed[existing_feed.index < self.end_time])
         else:
             return pd.DataFrame()
 

@@ -1,6 +1,6 @@
 from decimal import Decimal
 from typing import List, Tuple
-import time
+from datetime import datetime
 
 import pandas_ta as ta
 from pydantic import Field, field_validator
@@ -71,10 +71,18 @@ class PMMTrendingAdaptiveV3ControllerConfig(MarketMakingControllerConfigBase):
         default=0.008,
         json_schema_extra={"prompt": "Enter the min trailing stop activation (0.008): ", "prompt_on_new": True})
     early_stop_decrease_interval: int = Field(
-        default="3600",
+        default="0",
         json_schema_extra={
-            "prompt": "Enter the decrease trailing stop interval seconds(3600): ",
+            "prompt": "Enter the decrease trailing stop interval seconds(0): ",
             "prompt_on_new": True})
+    # time_limit_with_profit_interval: int = Field(
+    #     default="0",
+    #     json_schema_extra={
+    #         "prompt": "Enter the time limit with profit interval seconds(0): ",
+    #         "prompt_on_new": True})
+    # time_limit_with_profit_activation: float = Field(
+    #     default=0.002,
+    #     json_schema_extra={"prompt": "Enter the min trailing stop activation (0.002): ", "prompt_on_new": True})
     backtesting: bool = Field(default=False, json_schema_extra={"is_updatable": True})
 
 
@@ -95,16 +103,26 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
             )]
         super().__init__(config, update_interval=self.config.sleep_interval, *args, **kwargs)
         self.update_data_interval = self.config.update_interval
-        self.last_update_data_time = time.time() - self.update_data_interval - 10
+        self.last_update_data_time = self.market_data_provider.time() - self.update_data_interval - 10
         self.last_candle_timestamp = 0
 
+    def format_timestamp(self, current_timestamp):
+        return datetime.fromtimestamp(current_timestamp).strftime('%Y%m%d-%H%M%S')
+
+    def log_msg(self, msg, current_timestamp=None):
+        if self.config.backtesting:
+            if not current_timestamp:
+                current_timestamp = self.market_data_provider.time()
+            self.logger().info(f'[{self.format_timestamp(current_timestamp)}] {msg}')
+        else:
+            self.logger().info(msg)
+
     async def update_processed_data(self):
-        current_time = time.time()
-        if not self.config.backtesting:
-            if current_time - self.last_update_data_time < self.update_data_interval:
-                return
+        current_time = self.market_data_provider.time()
         
-        self.logger().info(f"Updating candles for {self.config.trading_pair} {self.config.candle_interval}")
+        if current_time - self.last_update_data_time < self.update_data_interval:
+            return
+        
         candles = self.market_data_provider.get_candles_df(connector_name=self.config.connector_name,
                                                            trading_pair=self.config.trading_pair,
                                                            interval=self.config.candle_interval,
@@ -112,13 +130,11 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
         last_candle_timestamp = candles["timestamp"].max()
         if last_candle_timestamp > self.last_candle_timestamp:
             self.last_candle_timestamp = last_candle_timestamp
-            msg = f'There are new candles, updating processed data up to {int(self.last_candle_timestamp)} at {int(self.market_data_provider.time())}'
-            self.logger().info(msg)
-            # print(msg)
+            self.log_msg(f'There are new candles, updating processed data up to {self.format_timestamp(self.last_candle_timestamp)} at {self.format_timestamp(current_time)}')
         else:
-            if not self.config.backtesting:
-                self.last_update_data_time = current_time
             return
+        
+        self.log_msg(f"Updated candles for {self.config.trading_pair} {self.config.candle_interval}")
         
         sma_short = ta.sma(candles["close"], length=self.config.sma_short_length, talib=False)
         sma = ta.sma(candles["close"], length=self.config.sma_length, talib=False)
@@ -134,12 +150,12 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
         trend = ""
         if candle_close > candle_sma_short and candle_close > candle_sma and candle_cci > self.config.cci_threshold:
             trend = "up"
-            self.logger().info(f"Up trend => candle_close:{candle_close:.5f} > candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
-                               f"candle_cci:{candle_cci:.1f} > threshold:{self.config.cci_threshold:.1f}")
+            self.log_msg(f"Up trend => candle_close:{candle_close:.5f} > candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
+                    f"candle_cci:{candle_cci:.1f} > threshold:{self.config.cci_threshold:.1f}")
         elif candle_close < candle_sma_short and candle_close < candle_sma and candle_cci < -self.config.cci_threshold:
             trend = "down"
-            self.logger().info(f"Down trend => candle_close:{candle_close:.5f} < candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
-                               f"candle_cci:{candle_cci:.1f} < threshold:{-self.config.cci_threshold:.1f}")
+            self.log_msg(f"Down trend => candle_close:{candle_close:.5f} < candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
+                    f"candle_cci:{candle_cci:.1f} < threshold:{-self.config.cci_threshold:.1f}")
         
         reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
         
@@ -151,8 +167,7 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
             }
         )
         
-        if not self.config.backtesting:
-            self.last_update_data_time = current_time
+        self.last_update_data_time = current_time
 
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
         """
@@ -170,17 +185,17 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
         if trend == "up":
             if trade_type == TradeType.BUY:
                 spread_in_pct *= Decimal(self.config.narrow_spread_multiplier)
-                self.logger().info(f"Up trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+                self.log_msg(f"Up trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
             elif trade_type == TradeType.SELL:
                 spread_in_pct *= Decimal(self.config.widen_spread_multiplier)
-                self.logger().info(f"Up trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+                self.log_msg(f"Up trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
         elif trend == "down":
             if trade_type == TradeType.BUY:
                 spread_in_pct *= Decimal(self.config.widen_spread_multiplier)
-                self.logger().info(f"Down trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+                self.log_msg(f"Down trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
             elif trade_type == TradeType.SELL:
                 spread_in_pct *= Decimal(self.config.narrow_spread_multiplier)
-                self.logger().info(f"Down trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+                self.log_msg(f"Down trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
         
         side_multiplier = Decimal("-1") if trade_type == TradeType.BUY else Decimal("1")
         order_price = reference_price * (1 + side_multiplier * spread_in_pct)
@@ -235,32 +250,33 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
             side=trade_type,
         )
 
-    def executors_to_early_stop(self) -> List[ExecutorAction]:
+    def determine_early_take_profit(self):
         executors_to_early_stop = []
+            
+        if self.config.early_stop_decrease_interval <= 0:
+            return executors_to_early_stop
         
         for executor_info in self.executors_info:
             execution_time = self.market_data_provider.time() - executor_info.timestamp
             time_factor = round(execution_time / float(self.config.early_stop_decrease_interval), 1)
-            if time_factor < 1:
+            if time_factor <= 1:
                 continue
             
             if not executor_info.is_active or not executor_info.is_trading:
                 continue
             early_take_profit = max(self.config.take_profit / Decimal(time_factor), self.config.early_stop_activation_price_min)
             if executor_info.net_pnl_pct > early_take_profit:
-                msg = f'Add {executor_info} to early take profit, pnl:{executor_info.net_pnl_pct:.2%}, threshold:{early_take_profit:.2f}, execution_time:{execution_time}s'
                 executors_to_early_stop.append(executor_info)
-                self.logger().info(msg)
-                if self.config.backtesting:
-                    print(msg)
+                self.log_msg(f'Add {executor_info} to early take profit, pnl:{executor_info.net_pnl_pct:.2%}, threshold:{early_take_profit:.2f}, execution_time:{execution_time}s')
         
         if len(executors_to_early_stop) > 0:
-            msg = f'Added {len(executors_to_early_stop)} executors to early take profit'
-            self.logger().info(msg)
-            if self.config.backtesting:
-                print(msg)
-        
+            self.log_msg(f'Added {len(executors_to_early_stop)} executors to early take profit')
+            
+        return executors_to_early_stop
+
+    def executors_to_early_stop(self) -> List[ExecutorAction]:
+        executors = self.determine_early_take_profit()
         return [StopExecutorAction(
             controller_id=self.config.id,
-            executor_id=executor.id) for executor in executors_to_early_stop]
+            executor_id=executor.id) for executor in executors]
 
