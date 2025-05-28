@@ -1,3 +1,4 @@
+from datetime import datetime
 import os
 import sys
 
@@ -223,12 +224,19 @@ class MockPositionExecutor(PositionExecutor):
         if not order:
             return
         
+        if self._open_order:
+            order.creation_timestamp = self._open_order.creation_timestamp
+            self.update_in_flight_order(order_id, order)
+        
         if self.can_fill(order.order_type, order.trade_type, price):
             self.update_order_state(order, OrderState.FILLED)
             self.update_order_trade(order)
-            self.build_and_process_filled_event(order)
+            self.build_and_process_filled_event(order, close_type)
+
+    def format_timestamp(self, current_timestamp):
+        return datetime.fromtimestamp(current_timestamp).strftime('%m%d/%H:%M:%S')
     
-    def build_and_process_filled_event(self, order: InFlightOrder):
+    def build_and_process_filled_event(self, order: InFlightOrder, close_type: CloseType = None):
         filled_event = OrderFilledEvent(
             timestamp=self.current_time(),
             order_id=order.client_order_id,
@@ -243,6 +251,11 @@ class MockPositionExecutor(PositionExecutor):
             position=order.position
         )
         self.process_order_filled_event(None, None, filled_event)
+        
+        if order.position == PositionAction.CLOSE:
+            self.logger().warning(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Close {close_type.name}: pnl={self.net_pnl_quote:.5f}, price={filled_event.price:.5f}, amount={filled_event.amount*filled_event.price:.5f}, pct={self.net_pnl_pct:.2%}, {filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}")
+        else:
+            self.logger().info(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Open filled: price={filled_event.price:.5f}, amount={filled_event.amount*filled_event.price:.5f}, {filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}")
 
     def place_take_profit_limit_order(self):
         super().place_take_profit_limit_order()
@@ -254,7 +267,11 @@ class MockPositionExecutor(PositionExecutor):
         order = self.get_in_flight_order(self.config.connector_name, order_id)
         if not order:
             return
-        
+            
+        if self._open_order:
+            order.creation_timestamp = self._open_order.creation_timestamp
+            self.update_in_flight_order(order_id, order)
+ 
         if self.can_fill(order.order_type, order.trade_type, order.price):
             self.update_order_state(order, OrderState.FILLED)
             self.update_order_trade(order)
@@ -318,7 +335,7 @@ class MockPositionExecutor(PositionExecutor):
         return self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, price_type)
     
     def on_market_data(self, market_data) -> bool:
-        prices = [market_data['open']]
+        prices = []
         is_buy = self.is_buy()
         if is_buy:
             prices.extend([market_data['low'], market_data['high']])
@@ -358,6 +375,6 @@ class MockPositionExecutor(PositionExecutor):
         
         self.update_order_state(order, OrderState.FILLED)
         self.update_order_trade(order)
-        self.build_and_process_filled_event(order)
+        self.build_and_process_filled_event(order, None)
         return True
     

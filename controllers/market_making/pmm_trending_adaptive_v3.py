@@ -213,6 +213,7 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
         level = self.get_level_from_level_id(level_id)
         trade_type = self.get_trade_type_from_level_id(level_id)
         spreads, amounts_quote = self.config.get_spreads_and_amounts_in_quote(trade_type)
+        reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
         
         natr = Decimal(self.processed_data["natr"])
         base_spread_multiplier = natr / 2
@@ -237,7 +238,8 @@ class PMMTrendingAdaptiveV3Controller(MarketMakingControllerBase):
             stop_loss_order_type=OrderType.MARKET,  # Defaulting to MARKET as per requirement
             time_limit_order_type=OrderType.MARKET  # Defaulting to MARKET as per requirement
         )
-        
+
+        self.log_msg(f"Creating executor {level_id} with price: {price:.5f}(mid:{reference_price:.5f}), quote: {amount*price:.5f}, amount: {amount:.1f}, trade_type: {trade_type}")
         return PositionExecutorConfig(
             timestamp=self.market_data_provider.time(),
             level_id=level_id,

@@ -635,8 +635,9 @@ class BacktestEngine(BacktestingEngineBase):
         
         for i, row in market_data.iterrows():
             if len(controller_config.candles_config) > 0:
-                current_start = start - (450 * CandlesBase.interval_to_seconds[controller_config.candles_config[0].interval])
-                current_end = int(row["timestamp_bt"])
+                candle_seconds = CandlesBase.interval_to_seconds[controller_config.candles_config[0].interval]
+                current_start = start - (450 * candle_seconds)
+                current_end = int(row["timestamp_bt"]) - candle_seconds
                 self.backtesting_data_provider.update_start_end_time(current_start, current_end)
                 
             await self.controller.update_processed_data()
