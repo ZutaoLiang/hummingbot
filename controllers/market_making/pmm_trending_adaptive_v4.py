@@ -177,7 +177,7 @@ class PMMTrendingAdaptiveV4Controller(MarketMakingControllerBase):
         trade_type = self.get_trade_type_from_level_id(level_id)
         spreads, amounts_quote = self.config.get_spreads_and_amounts_in_quote(trade_type)
         reference_price = Decimal(self.processed_data["reference_price"])
-        base_spread_multiplier = Decimal(self.processed_data["natr"]) / 2
+        base_spread_multiplier = Decimal(self.processed_data["natr"])
         spread_in_pct = Decimal(spreads[int(level)]) * base_spread_multiplier
         
         trend = self.processed_data["trend"]
@@ -213,27 +213,23 @@ class PMMTrendingAdaptiveV4Controller(MarketMakingControllerBase):
         # spreads, amounts_quote = self.config.get_spreads_and_amounts_in_quote(trade_type)
         # level = self.get_level_from_level_id(level_id)
         trade_type = self.get_trade_type_from_level_id(level_id)
-        
-        # for executor_info in self.executors_info:
-        #     if executor_info.is_active and executor_info.is_trading:
-        #         active_trade_type = self.get_trade_type_from_level_id(executor_info.config.level_id)
-                
-        #         if active_trade_type != trade_type:
-        #             # one way mode
-        #             return None
-        
+
         reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
         
         natr = Decimal(self.processed_data["natr"])
-        base_spread_multiplier = natr / 2
         
         initial_config = self.config.triple_barrier_config
         
-        stop_loss = initial_config.stop_loss
-        take_profit = max(initial_config.take_profit, base_spread_multiplier * 4)
+        # stop_loss = initial_config.stop_loss
+        # take_profit = max(initial_config.take_profit, base_spread_multiplier * 4)
+        # trailing_stop_activation_price = max(initial_config.trailing_stop.activation_price, base_spread_multiplier * 3)
+        # trailing_stop_delta = max(initial_config.trailing_stop.trailing_delta, base_spread_multiplier)
+        
+        stop_loss  = abs(initial_config.stop_loss * natr)
+        take_profit = abs(initial_config.take_profit * natr)
+        trailing_stop_activation_price = abs(initial_config.trailing_stop.activation_price * natr)
+        trailing_stop_delta = abs(natr * initial_config.trailing_stop.trailing_delta * natr)
         time_limit = initial_config.time_limit
-        trailing_stop_activation_price = max(initial_config.trailing_stop.activation_price, base_spread_multiplier * 3)
-        trailing_stop_delta = max(initial_config.trailing_stop.trailing_delta, base_spread_multiplier)
         
         trailing_stop = TrailingStop(activation_price=trailing_stop_activation_price, trailing_delta=trailing_stop_delta)
         
@@ -247,8 +243,10 @@ class PMMTrendingAdaptiveV4Controller(MarketMakingControllerBase):
             stop_loss_order_type=OrderType.MARKET,  # Defaulting to MARKET as per requirement
             time_limit_order_type=OrderType.MARKET  # Defaulting to MARKET as per requirement
         )
-
-        self.log_msg(f"Creating executor {level_id} with price: {price:.5f}(mid:{reference_price:.5f}), quote: {amount*price:.5f}, amount: {amount:.1f}, trade_type: {trade_type}")
+        
+        # self.logger().warning(f'take profit:{take_profit:.3%}, stop loss:{stop_loss:.3%}, trailing stop activation price:{trailing_stop_activation_price:.3%}, trailing stop delta:{trailing_stop_delta:.3%}')
+        # self.log_msg(f"Creating executor {level_id} with price: {price:.5f}(mid:{reference_price:.5f}), quote: {amount*price:.5f}, amount: {amount:.1f}, trade_type: {trade_type}")
+        
         return PositionExecutorConfig(
             timestamp=self.market_data_provider.time(),
             level_id=level_id,

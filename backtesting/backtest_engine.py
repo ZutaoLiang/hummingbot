@@ -74,7 +74,11 @@ class BacktestResult:
         sharpe_ratio = results["sharpe_ratio"]
         profit_factor = results["profit_factor"]
         total_executors = results["total_executors"]
+        total_executors_with_position = results["total_executors_with_position"]
+        accuracy = results["accuracy"]
+        total_long = results["total_long"]
         accuracy_long = results["accuracy_long"]
+        total_short = results["total_short"]
         accuracy_short = results["accuracy_short"]
         take_profit = results["close_types"].get("TAKE_PROFIT", 0)
         stop_loss = results["close_types"].get("STOP_LOSS", 0)
@@ -85,9 +89,9 @@ class BacktestResult:
         return f"""
 =====================================================================================================================================    
 {msg}Backtest result for {trading_pair}({self.backtest_resolution}) From: {self.start_date} to: {self.end_date} with trade cost: {self.trade_cost:.2%} and slippage:{self.slippage:.2%}
-Net PNL: ${net_pnl_quote:.2f} ({net_pnl_pct*100:.2f}%) | Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct*100:.2f}%)
-Total Volume ($): {total_volume:.2f} | Sharpe Ratio: {sharpe_ratio:.2f} | Profit Factor: {profit_factor:.2f}
-Total Executors: {total_executors} | Accuracy Long: {accuracy_long:.2%} | Accuracy Short: {accuracy_short:.2%}
+Net PNL: ${net_pnl_quote:.2f} ({net_pnl_pct*100:.2f}%) | Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct*100:.2f}%) | Sharpe Ratio: {sharpe_ratio:.2f} | Profit Factor: {profit_factor:.2f}
+Total Volume ($): {total_volume:.2f} | Total Executors: {total_executors} (with Position: {total_executors_with_position}) | Accuracy: {accuracy:.2%}
+Total Long: {total_long} | Accuracy Long: {accuracy_long:.2%} | Total Short: {total_short} | Accuracy Short: {accuracy_short:.2%}
 Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop Loss: {stop_loss} | Time Limit: {time_limit} | Early Stop: {early_stop}
 =====================================================================================================================================
 """
@@ -760,42 +764,42 @@ class ParamSpace:
         backtest_params = []
         batch = 1
         
-        executor_refresh_time_space = [60, 120, 180, 300, 600, 900]
-        take_profit_space = np.arange(0.04, 0.051, 0.005)
-        stop_loss_space = np.arange(0.02, 0.036, 0.005)
+        executor_refresh_time_space = [180, 300, 600]
+        take_profit_space = np.arange(1, 10.1, 1)
+        stop_loss_space = np.arange(1, 10.1, 1)
         # cooldown_time_space = np.arange(900, 3601, 900)
-        spread_space = [[1, 1.5, 2], [1, 2, 3], [0.5, 1, 1.5]]
-        trailing_stop_space = np.arange(0.015, 0.026, 0.005)
+        spread_space = [[1], [1.5], [2], [3], [4]]
+        # trailing_stop_space = np.arange(0.015, 0.026, 0.005)
         cci_threshold_space = np.arange(60, 101, 20)
-        length_space = np.arange(20, 41, 10)
-        natr_length_space = np.arange(7, 22, 7)
+        # length_space = np.arange(20, 41, 10)
+        # natr_length_space = np.arange(7, 22, 7)
         
         for executor_refresh_time in executor_refresh_time_space:
             for take_profit in take_profit_space:
                 for stop_loss in stop_loss_space:
                     for spread in spread_space:
-                        for trailing_stop in trailing_stop_space:
-                            for cci_threshold in cci_threshold_space:
-                                for length in length_space:
-                                    for natr_length in natr_length_space:
-                                        
-                                        backtest_param = copy.deepcopy(base_backtest_param)
-                                        
-                                        config_dict = backtest_param.config_dict
-                                        config_dict['executor_refresh_time'] = executor_refresh_time
-                                        config_dict['take_profit'] = take_profit
-                                        config_dict['stop_loss'] = stop_loss
-                                        config_dict['buy_spreads'] = spread
-                                        config_dict['sell_spreads'] = spread
-                                        config_dict['trailing_stop']['activation_price'] = trailing_stop
-                                        config_dict['cci_threshold'] = cci_threshold
-                                        config_dict['sma_length'] = length
-                                        config_dict['cci_length'] = length
-                                        config_dict['natr_length'] = natr_length
-                                        
-                                        backtest_param.batch = batch
-                                        backtest_params.append(backtest_param)
-                                        batch += 1
+                        # for trailing_stop in trailing_stop_space:
+                        for cci_threshold in cci_threshold_space:
+                            # for length in length_space:
+                            #     for natr_length in natr_length_space:
+                                    
+                            backtest_param = copy.deepcopy(base_backtest_param)
+                            
+                            config_dict = backtest_param.config_dict
+                            config_dict['executor_refresh_time'] = executor_refresh_time
+                            config_dict['take_profit'] = take_profit
+                            config_dict['stop_loss'] = stop_loss
+                            config_dict['buy_spreads'] = spread
+                            config_dict['sell_spreads'] = spread
+                            # config_dict['trailing_stop']['activation_price'] = trailing_stop
+                            config_dict['cci_threshold'] = cci_threshold
+                            # config_dict['sma_length'] = length
+                            # config_dict['cci_length'] = length
+                            # config_dict['natr_length'] = natr_length
+                            
+                            backtest_param.batch = batch
+                            backtest_params.append(backtest_param)
+                            batch += 1
         
         return backtest_params
 
