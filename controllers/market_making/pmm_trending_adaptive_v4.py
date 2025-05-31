@@ -17,7 +17,7 @@ from hummingbot.strategy_v2.executors.position_executor.data_types import Positi
 
 
 class PMMTrendingAdaptiveV4ControllerConfig(MarketMakingControllerConfigBase):
-    controller_name: str = "pmm_trending_adaptive_v3"
+    controller_name: str = "pmm_trending_adaptive_v4"
     candles_config: List[CandlesConfig] = []
     buy_spreads: List[float] = Field(
         default="1,2,4",
