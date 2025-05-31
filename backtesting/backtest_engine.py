@@ -526,18 +526,24 @@ class BacktestEngine(BacktestingEngineBase):
     
     async def async_backtest_with_config(self, controller_config: ControllerConfigBase, start_date: datetime, end_date: datetime, 
                              backtest_resolution: str, trade_cost: float, slippage: float) -> BacktestResult:
-        t = time.time()
-        executor_refresh_time = 0
-        if isinstance(controller_config, MarketMakingControllerConfigBase):
-            executor_refresh_time = int(controller_config.executor_refresh_time)
-        
-        start = int(start_date.timestamp())
-        end = int(end_date.timestamp())
-        result = await self.do_backtest(controller_config, start, end, executor_refresh_time, backtest_resolution, trade_cost, slippage)
-        
-        backtest_result = BacktestResult(result, controller_config, backtest_resolution, start_date, end_date, trade_cost, slippage)
-        print(backtest_result.get_results_summary(None, f"[Batch-{self.batch}(time:{int(time.time() - t)}s)]. "))
-        
+        backtest_result = None
+        try:
+            t = time.time()
+            executor_refresh_time = 0
+            if isinstance(controller_config, MarketMakingControllerConfigBase):
+                executor_refresh_time = int(controller_config.executor_refresh_time)
+            
+            start = int(start_date.timestamp())
+            end = int(end_date.timestamp())
+            result = await self.do_backtest(controller_config, start, end, executor_refresh_time, backtest_resolution, trade_cost, slippage)
+            
+            backtest_result = BacktestResult(result, controller_config, backtest_resolution, start_date, end_date, trade_cost, slippage)
+            print(backtest_result.get_results_summary(None, f"[Batch-{self.batch}(time:{int(time.time() - t)}s)]. "))
+        except Exception as e:
+            print(f"Error during backtest {self.batch}: {e}")
+            if self.print_detail:
+                import traceback
+                traceback.print_exc()
         return backtest_result
     
     async def do_backtest_v1(self,
@@ -764,11 +770,11 @@ class ParamSpace:
         backtest_params = []
         batch = 1
         
-        executor_refresh_time_space = [180, 300, 600]
+        executor_refresh_time_space = [60, 120, 180, 300, 600]
         take_profit_space = np.arange(1, 10.1, 1)
         stop_loss_space = np.arange(1, 10.1, 1)
         # cooldown_time_space = np.arange(900, 3601, 900)
-        spread_space = [[1], [1.5], [2], [3], [4]]
+        spread_space = [[0.5], [1], [1.5], [2], [3], [4], [5]]
         # trailing_stop_space = np.arange(0.015, 0.026, 0.005)
         cci_threshold_space = np.arange(60, 101, 20)
         # length_space = np.arange(20, 41, 10)
