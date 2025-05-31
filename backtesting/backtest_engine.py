@@ -841,7 +841,8 @@ class ParamOptimization:
         result_dir = os.path.join(config_dir, 'result')
         start_time = datetime.fromtimestamp(start_date.timestamp()).strftime("%y%m%d%H%M%S")
         end_time = datetime.fromtimestamp(end_date.timestamp()).strftime("%y%m%d%H%M%S")
-        result_file = f'{trading_pair}-{backtest_resolution}-{start_time}-{end_time}.csv'
+        now_time = datetime.fromtimestamp(end_date.timestamp()).strftime("%y%m%d%H%M%S")
+        result_file = f'{trading_pair}-{backtest_resolution}-{start_time}-{end_time}-tested-{now_time}.csv'
         if not os.path.exists(result_dir):
             os.mkdir(result_dir)
         
