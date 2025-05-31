@@ -1,0 +1,40 @@
+buy_amounts_pct:
+- 0.5
+buy_spreads:
+- 0.5
+sell_amounts_pct:
+- 0.5
+sell_spreads:
+- 0.5
+candles_config: []
+connector_name: binance_perpetual
+controller_name: pmm_trending_adaptive_v5
+controller_type: market_making
+cooldown_time: 900
+executor_refresh_time: 60
+id: 1000pepe-usdt_0.1
+leverage: 15
+manual_kill_switch: false
+position_mode: HEDGE
+stop_loss: 4
+take_profit: 1
+take_profit_order_type: 1
+time_limit: 86400
+total_amount_quote: 75
+trading_pair: WLD-USDC
+trailing_stop:
+  activation_price: 100
+  trailing_delta: 0.5
+sleep_interval: 5
+update_interval: 120
+candle_interval: 1m
+sma_short_length: 10
+sma_length: 30
+cci_length: 30
+cci_threshold: 100
+natr_length: 21
+widen_spread_multiplier: 3
+narrow_spread_multiplier: 1
+early_stop_activation_price_min: 0.006
+early_stop_decrease_interval: 0
+backtesting: true
