@@ -770,42 +770,44 @@ class ParamSpace:
         backtest_params = []
         batch = 1
         
-        executor_refresh_time_space = [60, 120, 180, 300, 600]
+        executor_refresh_time_space = [60, 120, 180, 300]
         take_profit_space = np.arange(1, 10.1, 1)
-        stop_loss_space = np.arange(1, 10.1, 1)
-        # cooldown_time_space = np.arange(900, 3601, 900)
-        spread_space = [[0.5], [1], [1.5], [2], [3], [4], [5]]
+        stop_loss_space = np.arange(2, 10.1, 1)
+        cooldown_time_space = [600, 900, 1800]
+        spread_space = [[0.5], [1], [1.5], [2], [3]]
         # trailing_stop_space = np.arange(0.015, 0.026, 0.005)
-        cci_threshold_space = np.arange(60, 101, 20)
+        cci_threshold_space = [100]
         # length_space = np.arange(20, 41, 10)
         # natr_length_space = np.arange(7, 22, 7)
         
         for executor_refresh_time in executor_refresh_time_space:
             for take_profit in take_profit_space:
                 for stop_loss in stop_loss_space:
-                    for spread in spread_space:
-                        # for trailing_stop in trailing_stop_space:
-                        for cci_threshold in cci_threshold_space:
-                            # for length in length_space:
-                            #     for natr_length in natr_length_space:
-                                    
-                            backtest_param = copy.deepcopy(base_backtest_param)
-                            
-                            config_dict = backtest_param.config_dict
-                            config_dict['executor_refresh_time'] = executor_refresh_time
-                            config_dict['take_profit'] = take_profit
-                            config_dict['stop_loss'] = stop_loss
-                            config_dict['buy_spreads'] = spread
-                            config_dict['sell_spreads'] = spread
-                            # config_dict['trailing_stop']['activation_price'] = trailing_stop
-                            config_dict['cci_threshold'] = cci_threshold
-                            # config_dict['sma_length'] = length
-                            # config_dict['cci_length'] = length
-                            # config_dict['natr_length'] = natr_length
-                            
-                            backtest_param.batch = batch
-                            backtest_params.append(backtest_param)
-                            batch += 1
+                    for cooldown_time in cooldown_time_space:
+                        for spread in spread_space:
+                            # for trailing_stop in trailing_stop_space:
+                            for cci_threshold in cci_threshold_space:
+                                # for length in length_space:
+                                #     for natr_length in natr_length_space:
+                                        
+                                backtest_param = copy.deepcopy(base_backtest_param)
+                                
+                                config_dict = backtest_param.config_dict
+                                config_dict['executor_refresh_time'] = executor_refresh_time
+                                config_dict['take_profit'] = take_profit
+                                config_dict['stop_loss'] = stop_loss
+                                config_dict['cooldown_time'] = cooldown_time
+                                config_dict['buy_spreads'] = spread
+                                config_dict['sell_spreads'] = spread
+                                # config_dict['trailing_stop']['activation_price'] = trailing_stop
+                                config_dict['cci_threshold'] = cci_threshold
+                                # config_dict['sma_length'] = length
+                                # config_dict['cci_length'] = length
+                                # config_dict['natr_length'] = natr_length
+                                
+                                backtest_param.batch = batch
+                                backtest_params.append(backtest_param)
+                                batch += 1
         
         return backtest_params
 
@@ -864,7 +866,7 @@ class ParamOptimization:
             
             pd.set_option('display.max_columns', None)
             result_df = pd.DataFrame(rows).sort_values("net_pnl", ascending=False)
-            result_df_cols = ['net_pnl','sharpe_ratio','profit_factor','accuracy','accuracy_long','accuracy_short','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','net_pnl_quote','total_executors','total_executors_with_position','total_volume','total_long','total_short','total_positions','max_drawdown_usd','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']
+            result_df_cols = ['net_pnl','net_pnl_quote','total_volume','sharpe_ratio','profit_factor','accuracy','accuracy_long','accuracy_short','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','total_executors','total_executors_with_position','total_long','total_short','total_positions','max_drawdown_usd','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']
             result_df = result_df[result_df_cols]
             result_df.to_csv(os.path.join(result_dir, result_file), index=False)
             
