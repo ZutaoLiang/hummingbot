@@ -27,7 +27,7 @@ trailing_stop:
   trailing_delta: 0.5
 sleep_interval: 3
 update_interval: 50
-candle_interval: 1m
+candle_interval: 3m
 sma_short_length: 10
 sma_length: 30
 cci_length: 30

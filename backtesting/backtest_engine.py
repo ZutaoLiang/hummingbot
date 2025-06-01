@@ -186,9 +186,9 @@ Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop 
                     
                     color = 'green'
                     if executor.close_type == CloseType.TAKE_PROFIT:
-                        color = 'olive'
-                    elif executor.close_type == CloseType.EARLY_STOP:
                         color = 'lime'
+                    elif executor.close_type == CloseType.EARLY_STOP:
+                        color = 'olive'
                         
                     fig.add_trace(go.Scatter(x=[start_time, end_time], y=[entry_price, exit_price], mode='lines',
                                              showlegend=True,
@@ -656,11 +656,13 @@ class BacktestEngine(BacktestingEngineBase):
             
             # 1. simulate the control task in position executor
             active_executors_info: List[ExecutorInfo] = []
+            stopped_level_ids: List[str] = []
             for executor_id, executor in list(active_executors.items()):
                 active = executor.on_market_data(row)
                 if active:
                     active_executors_info.append(executor.executor_info)
                 else:
+                    stopped_level_ids.append(executor.config.level_id)
                     del active_executors[executor_id]
                     stopped_executors_info.append(executor.executor_info)
             
@@ -686,6 +688,10 @@ class BacktestEngine(BacktestingEngineBase):
             for action in actions:
                 if not isinstance(action, CreateExecutorAction):
                     continue
+                
+                if action.executor_config.level_id in stopped_level_ids:
+                    continue
+                
                 executor_id = action.executor_config.id
                 position_execurtor = MockPositionExecutor(
                     config=action.executor_config,
@@ -787,7 +793,7 @@ class ParamSpace:
         batch = 1
         
         executor_refresh_time_space = [60, 120, 180, 300]
-        take_profit_space = np.arange(1, 10.1, 1)
+        take_profit_space = np.arange(1, 8.1, 1)
         stop_loss_space = np.arange(2, 10.1, 1)
         # cooldown_time_space = [600, 900, 1800]
         spread_space = [[0.5], [1], [1.5], [2], [3]]
@@ -857,7 +863,7 @@ class ParamOptimization:
         result_dir = os.path.join(config_dir, 'result')
         start_time = datetime.fromtimestamp(start_date.timestamp()).strftime("%y%m%d%H%M%S")
         end_time = datetime.fromtimestamp(end_date.timestamp()).strftime("%y%m%d%H%M%S")
-        now_time = datetime.fromtimestamp(end_date.timestamp()).strftime("%y%m%d%H%M%S")
+        now_time = datetime.fromtimestamp(time.time()).strftime("%y%m%d%H%M%S")
         result_file = f'{trading_pair}-{backtest_resolution}-{start_time}-{end_time}-tested-{now_time}.csv'
         if not os.path.exists(result_dir):
             os.mkdir(result_dir)
@@ -883,7 +889,7 @@ class ParamOptimization:
             
             pd.set_option('display.max_columns', None)
             result_df = pd.DataFrame(rows).sort_values("net_pnl", ascending=False)
-            result_df_cols = ['net_pnl','net_pnl_quote','total_volume','cum_fees_quote','sharpe_ratio','profit_factor','accuracy','accuracy_long','accuracy_short','max_drawdown_usd','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','total_executors','total_executors_with_position','total_long','total_short','total_positions','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']
+            result_df_cols = ['net_pnl','net_pnl_quote','total_volume','cum_fees_quote','sharpe_ratio','profit_factor','total_executors_with_position','accuracy','accuracy_long','accuracy_short','max_drawdown_usd','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','total_executors','total_long','total_short','total_positions','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']
             result_df = result_df[result_df_cols]
             result_df.to_csv(os.path.join(result_dir, result_file), index=False)
             
