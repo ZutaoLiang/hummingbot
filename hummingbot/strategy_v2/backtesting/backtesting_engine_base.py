@@ -282,6 +282,7 @@ class BacktestingEngineBase:
             total_loss = - loss_signals.loc[:, "net_pnl_quote"].sum()
             profit_factor = total_won / total_loss if total_loss > 0 else 1
             net_pnl_pct = net_pnl_quote / total_amount_quote
+            cum_fees_quote = executors_df["cum_fees_quote"].sum()
 
             return {
                 "net_pnl": float(net_pnl_pct),
@@ -302,6 +303,7 @@ class BacktestingEngineBase:
                 "profit_factor": float(profit_factor),
                 "win_signals": int(win_signals.shape[0]),
                 "loss_signals": int(loss_signals.shape[0]),
+                "cum_fees_quote": float(cum_fees_quote)
             }
         return {
             "net_pnl": 0,
@@ -322,4 +324,5 @@ class BacktestingEngineBase:
             "profit_factor": 0,
             "win_signals": 0,
             "loss_signals": 0,
+            "cum_fees_quote": 0
         }

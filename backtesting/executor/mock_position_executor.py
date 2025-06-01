@@ -45,9 +45,10 @@ class MockConnectorStrategy(ScriptStrategyBase):
 
 class MockPositionExecutor(PositionExecutor):
     
-    def __init__(self, config: PositionExecutorConfig, market_data_provider: BacktestingDataProvider, trade_cost: float, strategy: MockConnectorStrategy = None, update_interval = 1, max_retries = 10):
+    def __init__(self, config: PositionExecutorConfig, market_data_provider: BacktestingDataProvider, trade_cost: float, slippage: float, strategy: MockConnectorStrategy = None, update_interval = 1, max_retries = 10):
         self.market_data_provider = market_data_provider
-        self.trade_cost = trade_cost
+        self.trade_cost = Decimal(trade_cost)
+        self.slippage = Decimal(slippage)
         self.in_flight_orders: Dict[str, InFlightOrder] = {}
         self.entry_timestamp = None
         
@@ -133,7 +134,7 @@ class MockPositionExecutor(PositionExecutor):
             fee = TradeFeeBase.new_perpetual_fee(
                 fee_schema=fee_schema,
                 position_action=order.position,
-                percent=Decimal(self.trade_cost),
+                percent=self.trade_cost,
                 percent_token=None,
                 flat_fees=[]
             )
@@ -141,7 +142,7 @@ class MockPositionExecutor(PositionExecutor):
             fee = TradeFeeBase.new_spot_fee(
                 fee_schema=fee_schema,
                 trade_type=order.trade_type,
-                percent=Decimal(self.trade_cost),
+                percent=self.trade_cost,
                 percent_token=None,
                 flat_fees=[]
             )
@@ -150,16 +151,17 @@ class MockPositionExecutor(PositionExecutor):
     def update_order_trade(self, order: InFlightOrder):
         if not order:
             return
-            
+        
+        fill_price = self.calc_filled_price(order)
         order.update_with_trade_update(TradeUpdate(
             trade_id=uuid.uuid4(),
             client_order_id=order.client_order_id,
             exchange_order_id=order.exchange_order_id,
             trading_pair=order.trading_pair,
             fill_timestamp=self.current_time(),
-            fill_price=order.price,
+            fill_price=fill_price,
             fill_base_amount=order.amount,
-            fill_quote_amount=order.amount*order.price,
+            fill_quote_amount=order.amount*fill_price,
             fee=self.calc_fee(order)
         ))
     
@@ -236,16 +238,25 @@ class MockPositionExecutor(PositionExecutor):
     def format_timestamp(self, current_timestamp):
         return datetime.fromtimestamp(current_timestamp).strftime('%m%d/%H:%M:%S')
     
+    def calc_filled_price(self, order: InFlightOrder) -> Decimal:
+        if order.order_type == OrderType.LIMIT:
+            return order.price
+        
+        factor = -1 if order.trade_type == TradeType.SELL else 1
+        return order.price * (1 + factor * self.slippage)
+    
     def build_and_process_filled_event(self, order: InFlightOrder, close_type: CloseType = None):
+        trade_fee = self.calc_fee(order)
+        fee = order.cumulative_fee_paid(token=order.quote_asset)
         filled_event = OrderFilledEvent(
             timestamp=self.current_time(),
             order_id=order.client_order_id,
             trading_pair=order.trading_pair,
             trade_type=order.trade_type,
             order_type=order.order_type,
-            price=order.price,
+            price=self.calc_filled_price(order),
             amount=order.amount,
-            trade_fee=self.calc_fee(order),
+            trade_fee=trade_fee,
             exchange_order_id=order.exchange_order_id,
             leverage=order.leverage,
             position=order.position
@@ -253,9 +264,14 @@ class MockPositionExecutor(PositionExecutor):
         self.process_order_filled_event(None, None, filled_event)
         
         if order.position == PositionAction.CLOSE:
-            self.logger().warning(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Close {close_type.name}: pnl={self.net_pnl_quote:.5f}, price={filled_event.price:.5f}, amount={filled_event.amount*filled_event.price:.5f}, pct={self.net_pnl_pct:.2%}, {filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}")
+            open_order = self._open_order.order
+            msg = f"[{self.format_timestamp(open_order.last_update_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Close {close_type.name}: " \
+                f"pnl={self.net_pnl_quote:.5f}, entry@{open_order.price:.5f}, filled@{filled_event.price:.5f}, fee={fee:.5f}, " \
+                f"amount={filled_event.amount*filled_event.price:.5f}, pct={self.net_pnl_pct:.2%}, " \
+                f"{filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}"
+            self.logger().warning(f'\033[92m{msg}\033[0m' if self.net_pnl_quote > 0 else f'\033[91m{msg}\033[0m')
         else:
-            self.logger().info(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Open filled: price={filled_event.price:.5f}, amount={filled_event.amount*filled_event.price:.5f}, {filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}")
+            self.logger().info(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Open filled: fill price={filled_event.price:.5f}, amount={filled_event.amount*filled_event.price:.5f}, {filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}")
 
     def place_take_profit_limit_order(self):
         super().place_take_profit_limit_order()

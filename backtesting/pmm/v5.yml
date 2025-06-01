@@ -1,11 +1,11 @@
 buy_amounts_pct:
 - 0.5
 buy_spreads:
-- 0.5
+- 1
 sell_amounts_pct:
 - 0.5
 sell_spreads:
-- 0.5
+- 1
 candles_config: []
 connector_name: binance_perpetual
 controller_name: pmm_trending_adaptive_v5
@@ -25,8 +25,8 @@ trading_pair: WLD-USDC
 trailing_stop:
   activation_price: 100
   trailing_delta: 0.5
-sleep_interval: 5
-update_interval: 120
+sleep_interval: 3
+update_interval: 50
 candle_interval: 1m
 sma_short_length: 10
 sma_length: 30

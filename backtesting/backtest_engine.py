@@ -71,6 +71,7 @@ class BacktestResult:
         max_drawdown = results["max_drawdown_usd"]
         max_drawdown_pct = results["max_drawdown_pct"]
         total_volume = results["total_volume"]
+        cum_fees_quote = results["cum_fees_quote"]
         sharpe_ratio = results["sharpe_ratio"]
         profit_factor = results["profit_factor"]
         total_executors = results["total_executors"]
@@ -90,7 +91,7 @@ class BacktestResult:
 =====================================================================================================================================    
 {msg}Backtest result for {trading_pair}({self.backtest_resolution}) From: {self.start_date} to: {self.end_date} with trade cost: {self.trade_cost:.2%} and slippage:{self.slippage:.2%}
 Net PNL: ${net_pnl_quote:.2f} ({net_pnl_pct*100:.2f}%) | Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct*100:.2f}%) | Sharpe Ratio: {sharpe_ratio:.2f} | Profit Factor: {profit_factor:.2f}
-Total Volume ($): {total_volume:.2f} | Total Executors: {total_executors} (with Position: {total_executors_with_position}) | Accuracy: {accuracy:.2%}
+Total Volume ($): {total_volume:.2f} (fees: ${cum_fees_quote:.2f}) | Total Executors: {total_executors} (with Position: {total_executors_with_position}) | Accuracy: {accuracy:.2%}
 Total Long: {total_long} | Accuracy Long: {accuracy_long:.2%} | Total Short: {total_short} | Accuracy Short: {accuracy_short:.2%}
 Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop Loss: {stop_loss} | Time Limit: {time_limit} | Early Stop: {early_stop}
 =====================================================================================================================================
@@ -285,6 +286,12 @@ class CacheableBacktestingDataProvider(BacktestingDataProvider):
     def update_start_end_time(self, start_time: int, end_time: int):
         self.start_time = start_time
         self.end_time = end_time
+        
+    def update_time(self, time: int):
+        self._time = time
+        
+    def update_price(self, connector_name: str, trading_pair: str, price: float):
+        self.prices = {f'{connector_name}_{trading_pair}': Decimal(price)}
     
     def _get_local_trading_rules_file(self, key: str):
         return f'{key}-trading-rules.pkl'
@@ -644,16 +651,10 @@ class BacktestEngine(BacktestingEngineBase):
         stopped_executors_info: List[ExecutorInfo] = []
         
         for i, row in market_data.iterrows():
-            if len(controller_config.candles_config) > 0:
-                candle_seconds = CandlesBase.interval_to_seconds[controller_config.candles_config[0].interval]
-                current_start = start - (450 * candle_seconds)
-                current_end = int(row["timestamp_bt"]) - candle_seconds
-                self.backtesting_data_provider.update_start_end_time(current_start, current_end)
-                
-            await self.controller.update_processed_data()
+            current_timestamp = int(row["timestamp"])
+            self.backtesting_data_provider.update_time(current_timestamp)
             
-            self.update_to_market_data(row)
-            
+            # 1. simulate the control task in position executor
             active_executors_info: List[ExecutorInfo] = []
             for executor_id, executor in list(active_executors.items()):
                 active = executor.on_market_data(row)
@@ -665,9 +666,23 @@ class BacktestEngine(BacktestingEngineBase):
             
             self.controller.executors_info = active_executors_info + stopped_executors_info
             
+            # 2. simulate the control task in controller
+            # 2.1 update the processed data
+            if len(controller_config.candles_config) > 0:
+                candle_seconds = CandlesBase.interval_to_seconds[controller_config.candles_config[0].interval]
+                current_start = start - (100 * candle_seconds)
+                current_end = current_timestamp - candle_seconds
+                self.backtesting_data_provider.update_start_end_time(current_start, current_end)
+            
+            self.controller.processed_data.update(row.to_dict())
+            mid_price = (row['high'] + row['low']) / 2
+            self.backtesting_data_provider.update_price(self.controller.config.connector_name, self.controller.config.trading_pair, mid_price)
+            await self.controller.update_processed_data()
+            
+            # 2.2 determine the actions
             actions = self.controller.determine_executor_actions()
             
-            # process create actions
+            # 2.2.1 process create actions
             for action in actions:
                 if not isinstance(action, CreateExecutorAction):
                     continue
@@ -675,12 +690,13 @@ class BacktestEngine(BacktestingEngineBase):
                 position_execurtor = MockPositionExecutor(
                     config=action.executor_config,
                     market_data_provider=self.backtesting_data_provider,
-                    trade_cost=trade_cost
+                    trade_cost=trade_cost,
+                    slippage=slippage
                 )
                 active_executors[executor_id] = position_execurtor
                 position_execurtor.on_market_data(row)
             
-            # process stop actions
+            # 2.2.2 process stop actions
             for action in actions:
                 if not isinstance(action, StopExecutorAction):
                     continue
@@ -715,11 +731,11 @@ class BacktestEngine(BacktestingEngineBase):
             "processed_data": self.controller.processed_data,
         }
     
-    def update_to_market_data(self, row):
-        key = f"{self.controller.config.connector_name}_{self.controller.config.trading_pair}"
-        self.controller.market_data_provider.prices = {key: Decimal(row["close_bt"])}
-        self.controller.market_data_provider._time = row["timestamp"]
-        self.controller.processed_data.update(row.to_dict())
+    # def update_to_processed_data(self, row):
+    #     key = f"{self.controller.config.connector_name}_{self.controller.config.trading_pair}"
+    #     self.controller.market_data_provider.prices = {key: Decimal(row["close_bt"])}
+    #     self.controller.market_data_provider._time = row["timestamp"]
+    #     self.controller.processed_data.update(row.to_dict())
   
 
 @dataclass
@@ -773,7 +789,7 @@ class ParamSpace:
         executor_refresh_time_space = [60, 120, 180, 300]
         take_profit_space = np.arange(1, 10.1, 1)
         stop_loss_space = np.arange(2, 10.1, 1)
-        cooldown_time_space = [600, 900, 1800]
+        # cooldown_time_space = [600, 900, 1800]
         spread_space = [[0.5], [1], [1.5], [2], [3]]
         # trailing_stop_space = np.arange(0.015, 0.026, 0.005)
         cci_threshold_space = [100]
@@ -783,31 +799,31 @@ class ParamSpace:
         for executor_refresh_time in executor_refresh_time_space:
             for take_profit in take_profit_space:
                 for stop_loss in stop_loss_space:
-                    for cooldown_time in cooldown_time_space:
-                        for spread in spread_space:
-                            # for trailing_stop in trailing_stop_space:
-                            for cci_threshold in cci_threshold_space:
-                                # for length in length_space:
-                                #     for natr_length in natr_length_space:
-                                        
-                                backtest_param = copy.deepcopy(base_backtest_param)
-                                
-                                config_dict = backtest_param.config_dict
-                                config_dict['executor_refresh_time'] = executor_refresh_time
-                                config_dict['take_profit'] = take_profit
-                                config_dict['stop_loss'] = stop_loss
-                                config_dict['cooldown_time'] = cooldown_time
-                                config_dict['buy_spreads'] = spread
-                                config_dict['sell_spreads'] = spread
-                                # config_dict['trailing_stop']['activation_price'] = trailing_stop
-                                config_dict['cci_threshold'] = cci_threshold
-                                # config_dict['sma_length'] = length
-                                # config_dict['cci_length'] = length
-                                # config_dict['natr_length'] = natr_length
-                                
-                                backtest_param.batch = batch
-                                backtest_params.append(backtest_param)
-                                batch += 1
+                    # for cooldown_time in cooldown_time_space:
+                    for spread in spread_space:
+                        # for trailing_stop in trailing_stop_space:
+                        for cci_threshold in cci_threshold_space:
+                            # for length in length_space:
+                            #     for natr_length in natr_length_space:
+                                    
+                            backtest_param = copy.deepcopy(base_backtest_param)
+                            
+                            config_dict = backtest_param.config_dict
+                            config_dict['executor_refresh_time'] = executor_refresh_time
+                            config_dict['take_profit'] = take_profit
+                            config_dict['stop_loss'] = stop_loss
+                            # config_dict['cooldown_time'] = cooldown_time
+                            config_dict['buy_spreads'] = spread
+                            config_dict['sell_spreads'] = spread
+                            # config_dict['trailing_stop']['activation_price'] = trailing_stop
+                            config_dict['cci_threshold'] = cci_threshold
+                            # config_dict['sma_length'] = length
+                            # config_dict['cci_length'] = length
+                            # config_dict['natr_length'] = natr_length
+                            
+                            backtest_param.batch = batch
+                            backtest_params.append(backtest_param)
+                            batch += 1
         
         return backtest_params
 
@@ -867,7 +883,7 @@ class ParamOptimization:
             
             pd.set_option('display.max_columns', None)
             result_df = pd.DataFrame(rows).sort_values("net_pnl", ascending=False)
-            result_df_cols = ['net_pnl','net_pnl_quote','total_volume','sharpe_ratio','profit_factor','accuracy','accuracy_long','accuracy_short','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','total_executors','total_executors_with_position','total_long','total_short','total_positions','max_drawdown_usd','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']
+            result_df_cols = ['net_pnl','net_pnl_quote','total_volume','cum_fees_quote','sharpe_ratio','profit_factor','accuracy','accuracy_long','accuracy_short','max_drawdown_usd','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','total_amount_quote','total_executors','total_executors_with_position','total_long','total_short','total_positions','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','backtesting','position_mode','take_profit_order_type']
             result_df = result_df[result_df_cols]
             result_df.to_csv(os.path.join(result_dir, result_file), index=False)
             

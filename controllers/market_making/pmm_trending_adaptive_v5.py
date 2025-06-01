@@ -80,7 +80,7 @@ class PMMTrendingAdaptiveV5ControllerConfig(MarketMakingControllerConfigBase):
 class PMMTrendingAdaptiveV5Controller(MarketMakingControllerBase):
     def __init__(self, config: PMMTrendingAdaptiveV5ControllerConfig, *args, **kwargs):
         self.config = config
-        self.max_records = max(config.sma_length, config.cci_length, config.natr_length) + 100
+        self.max_records = int(max(config.sma_length, config.cci_length, config.natr_length) * 3)
         if len(self.config.candles_config) == 0:
             self.config.candles_config = [CandlesConfig(
                 connector=config.connector_name,
@@ -117,11 +117,9 @@ class PMMTrendingAdaptiveV5Controller(MarketMakingControllerBase):
         last_candle_timestamp = candles["timestamp"].max()
         if last_candle_timestamp > self.last_candle_timestamp:
             self.last_candle_timestamp = last_candle_timestamp
-            self.log_msg(f'There are new candles, updating processed data up to {self.format_timestamp(self.last_candle_timestamp)} at {self.format_timestamp(current_time)}')
+            # self.log_msg(f'There are new candles, updating {self.config.trading_pair}-{self.config.candle_interval} processed data up to {self.format_timestamp(self.last_candle_timestamp)} at {self.format_timestamp(current_time)}')
         else:
             return
-        
-        self.log_msg(f"Updated candles for {self.config.trading_pair} {self.config.candle_interval}")
         
         sma_short = ta.sma(candles["close"], length=self.config.sma_short_length, talib=False)
         sma = ta.sma(candles["close"], length=self.config.sma_length, talib=False)
@@ -137,11 +135,13 @@ class PMMTrendingAdaptiveV5Controller(MarketMakingControllerBase):
         trend = ""
         if candle_close > candle_sma_short and candle_close > candle_sma and candle_cci > self.config.cci_threshold:
             trend = "up"
-            self.log_msg(f"Up trend => candle_close:{candle_close:.5f} > candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
+            if not self.config.backtesting:
+                self.log_msg(f"Up trend => candle_close:{candle_close:.5f} > candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
                     f"candle_cci:{candle_cci:.1f} > threshold:{self.config.cci_threshold:.1f}")
         elif candle_close < candle_sma_short and candle_close < candle_sma and candle_cci < -self.config.cci_threshold:
             trend = "down"
-            self.log_msg(f"Down trend => candle_close:{candle_close:.5f} < candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
+            if not self.config.backtesting:
+                self.log_msg(f"Down trend => candle_close:{candle_close:.5f} < candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
                     f"candle_cci:{candle_cci:.1f} < threshold:{-self.config.cci_threshold:.1f}")
         
         reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
@@ -172,17 +172,21 @@ class PMMTrendingAdaptiveV5Controller(MarketMakingControllerBase):
         if trend == "up":
             if trade_type == TradeType.BUY:
                 spread_in_pct *= Decimal(self.config.narrow_spread_multiplier)
-                self.log_msg(f"Up trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+                if not self.config.backtesting:
+                    self.log_msg(f"Up trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
             elif trade_type == TradeType.SELL:
                 spread_in_pct *= Decimal(self.config.widen_spread_multiplier)
-                self.log_msg(f"Up trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+                if not self.config.backtesting:
+                    self.log_msg(f"Up trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
         elif trend == "down":
             if trade_type == TradeType.BUY:
                 spread_in_pct *= Decimal(self.config.widen_spread_multiplier)
-                self.log_msg(f"Down trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+                if not self.config.backtesting:
+                    self.log_msg(f"Down trend [Widen] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
             elif trade_type == TradeType.SELL:
                 spread_in_pct *= Decimal(self.config.narrow_spread_multiplier)
-                self.log_msg(f"Down trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
+                if not self.config.backtesting:
+                    self.log_msg(f"Down trend [Narrow] {level_id} spread:{spread_in_pct:.2%}, base spread_multiplier:{base_spread_multiplier:.2%}, reference_price:{reference_price:.5f}")
         
         side_multiplier = Decimal("-1") if trade_type == TradeType.BUY else Decimal("1")
         order_price = reference_price * (1 + side_multiplier * spread_in_pct)
@@ -201,8 +205,7 @@ class PMMTrendingAdaptiveV5Controller(MarketMakingControllerBase):
         # level = self.get_level_from_level_id(level_id)
         trade_type = self.get_trade_type_from_level_id(level_id)
 
-        reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
-        
+        reference_price = Decimal(self.processed_data["reference_price"])
         natr = Decimal(self.processed_data["natr"])
         
         initial_config = self.config.triple_barrier_config
