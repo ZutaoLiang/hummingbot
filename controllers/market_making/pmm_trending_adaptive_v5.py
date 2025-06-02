@@ -193,7 +193,7 @@ class PMMTrendingAdaptiveV5Controller(MarketMakingControllerBase):
         if order_price <= 0:
             return 0, 0
         
-        return order_price, round(Decimal(amounts_quote[int(level)]) / order_price)
+        return order_price, round(Decimal(amounts_quote[int(level)]) / order_price, 2)
 
     def get_executor_config(self, level_id: str, price: Decimal, amount: Decimal):
         if price == 0:

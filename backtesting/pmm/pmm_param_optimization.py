@@ -15,8 +15,8 @@ from backtesting import backtest_engine
 from datetime import datetime
 
 if __name__ == '__main__':
-    start_date = datetime(2025, 5, 24)
-    end_date = datetime(2025, 5, 31)
+    start_date = datetime(2025, 5, 25)
+    end_date = datetime(2025, 6, 2)
 
     config_file = 'pmm_param_optimization.yml'
 
