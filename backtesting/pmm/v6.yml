@@ -1,18 +1,18 @@
 buy_amounts_pct:
 - 0.5
 buy_spreads:
-- 3
+- 4
 sell_amounts_pct:
 - 0.5
 sell_spreads:
-- 3
+- 4
 candles_config: []
 connector_name: binance_perpetual
 controller_name: pmm_trending_adaptive_v6
 controller_type: market_making
-cooldown_time: 1800
-executor_refresh_time: 60
-id: v5-1
+cooldown_time: 3600
+executor_refresh_time: 120
+id: v6-1
 leverage: 25
 manual_kill_switch: false
 position_mode: HEDGE
@@ -37,4 +37,3 @@ widen_spread_multiplier: 2
 narrow_spread_multiplier: 1
 early_stop_activation_price_min: 0.006
 early_stop_decrease_interval: 0
-# backtesting: true

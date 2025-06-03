@@ -12,11 +12,14 @@ logging.basicConfig(
 
 from backtesting import backtest_engine
 
+from controllers.market_making import pmm_common
+pmm_common.BACKTESTING = True
+
 from datetime import datetime
 
 if __name__ == '__main__':
-    start_date = datetime(2025, 5, 25)
-    end_date = datetime(2025, 6, 2)
+    start_date = datetime(2025, 6, 1)
+    end_date = datetime(2025, 6, 4)
 
     config_file = 'pmm_param_optimization.yml'
 
