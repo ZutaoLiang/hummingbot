@@ -113,7 +113,6 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
             self.last_candle_timestamp = last_candle_timestamp
             self.log_msg(f'Update candles {self.config.trading_pair}-{self.config.candle_interval} processed data up to {pmm_common.format_timestamp(self.last_candle_timestamp)} at {pmm_common.format_timestamp(current_time)}')
         else:
-            self.log_msg(f'No new candles {self.config.trading_pair}-{self.config.candle_interval} at {pmm_common.format_timestamp(current_time)}')
             return
         
         sma_short = ta.sma(candles["close"], length=self.config.sma_short_length, talib=False)

@@ -139,10 +139,6 @@ class MarketDataProvider:
 
         if existing_feed and existing_feed.max_records >= config.max_records:
             # Existing feed is sufficient, return it
-            
-            #TODO: temporary checking, should remove
-            self.logger().info("Reusing existing candle feed.")
-            
             return existing_feed
         else:
             # Create a new feed or restart the existing one with updated max_records
