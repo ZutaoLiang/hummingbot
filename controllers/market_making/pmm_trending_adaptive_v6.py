@@ -96,7 +96,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
     def log_msg(self, msg, current_timestamp=None):
         if not current_timestamp:
             current_timestamp = self.market_data_provider.time()
-        return pmm_common.format_msg(msg, current_timestamp)
+        return self.logger().info(pmm_common.format_msg(msg, current_timestamp))
 
     async def update_processed_data(self):
         current_time = self.market_data_provider.time()
@@ -113,6 +113,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
             self.last_candle_timestamp = last_candle_timestamp
             self.log_msg(f'Update candles {self.config.trading_pair}-{self.config.candle_interval} processed data up to {pmm_common.format_timestamp(self.last_candle_timestamp)} at {pmm_common.format_timestamp(current_time)}')
         else:
+            self.log_msg(f'No new candles {self.config.trading_pair}-{self.config.candle_interval} at {pmm_common.format_timestamp(current_time)}')
             return
         
         sma_short = ta.sma(candles["close"], length=self.config.sma_short_length, talib=False)
