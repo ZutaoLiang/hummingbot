@@ -271,7 +271,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
                         candle_seconds = CandlesBase.interval_to_seconds[self.config.candle_interval]
                         if remaining_seconds < candle_seconds:
                             executors_to_early_stop.append(executor_info)
-                            self.log_msg(f'Early stop {executor_info.config.level_id} executor, remaining_seconds:{remaining_seconds}s')
+                            self.log_msg(f'Early stop {executor_info.config.level_id} executor, remaining_seconds:{remaining_seconds:.1f}s')
             
         if self.config.early_stop_decrease_interval <= 0:
             return executors_to_early_stop

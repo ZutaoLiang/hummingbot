@@ -21,7 +21,7 @@ take_profit: 3
 take_profit_order_type: 1
 time_limit: 86400
 total_amount_quote: 75
-trading_pair: TRUMP-USDT
+trading_pair: FARTCOIN-USDT
 trailing_stop:
   activation_price: 100
   trailing_delta: 0.5

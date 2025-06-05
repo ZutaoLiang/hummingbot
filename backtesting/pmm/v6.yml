@@ -1,27 +1,27 @@
 buy_amounts_pct:
 - 0.5
 buy_spreads:
-- 4
+- 3
 sell_amounts_pct:
 - 0.5
 sell_spreads:
-- 4
+- 3
 candles_config: []
 connector_name: binance_perpetual
 controller_name: pmm_trending_adaptive_v6
 controller_type: market_making
-cooldown_time: 3600
+cooldown_time: 1800
 executor_refresh_time: 120
 id: v6-1
 leverage: 25
 manual_kill_switch: false
 position_mode: HEDGE
 stop_loss: 9
-take_profit: 3
+take_profit: 1
 take_profit_order_type: 1
 time_limit: 86400
 total_amount_quote: 75
-trading_pair: TRUMP-USDT
+trading_pair: 1000PEPE-USDT
 trailing_stop:
   activation_price: 100
   trailing_delta: 0.5
