@@ -94,6 +94,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         self.update_data_interval = self.config.update_interval
         self.last_update_data_time = self.market_data_provider.time() - self.update_data_interval - 10
         self.last_candle_timestamp = 0
+        self.time_align_refreshable = False
 
     def log_msg(self, msg, current_timestamp=None):
         if not current_timestamp:
@@ -155,6 +156,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         )
         
         self.last_update_data_time = current_time
+        self.time_align_refreshable = True
 
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
         """
@@ -263,16 +265,16 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
             current_timestamp = self.market_data_provider.time()
             current_second = datetime.fromtimestamp(current_timestamp).second
             
-            if current_second < 2:
+            if current_second < 5 and self.time_align_refreshable:
                 for executor_info in self.executors_info:
                     if executor_info.is_active and not executor_info.is_trading:
-                        execution_seconds = current_timestamp - executor_info.timestamp
-                        remaining_seconds = self.config.executor_refresh_time - execution_seconds
-                        candle_seconds = CandlesBase.interval_to_seconds[self.config.candle_interval]
-                        if remaining_seconds < candle_seconds:
+                        execution_end_timestamp = executor_info.timestamp + self.config.executor_refresh_time
+                        zero_second_timestamp = datetime.fromtimestamp(execution_end_timestamp).replace(second=0, microsecond=0).timestamp()
+                        if current_timestamp >= zero_second_timestamp:
                             executors_to_early_stop.append(executor_info)
-                            self.log_msg(f'Early stop {executor_info.config.level_id} executor, remaining_seconds:{remaining_seconds:.1f}s')
-            
+                            self.log_msg(f'Add {executor_info.config.level_id} executor to early stop')
+                self.time_align_refreshable = False
+                
         if self.config.early_stop_decrease_interval <= 0:
             return executors_to_early_stop
         
