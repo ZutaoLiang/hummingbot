@@ -7,13 +7,13 @@ from pydantic import Field
 
 from hummingbot.core.data_type.common import OrderType, PriceType, TradeType
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
+from hummingbot.data_feed.candles_feed.candles_base import CandlesBase
 from hummingbot.strategy_v2.controllers.market_making_controller_base import (
     MarketMakingControllerBase,
     MarketMakingControllerConfigBase,
 )
 from hummingbot.strategy_v2.models.executor_actions import ExecutorAction, StopExecutorAction
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TrailingStop, TripleBarrierConfig
-
 from controllers.market_making import pmm_common
 
 class PMMTrendingAdaptiveV6ControllerConfig(MarketMakingControllerConfigBase):
@@ -75,6 +75,8 @@ class PMMTrendingAdaptiveV6ControllerConfig(MarketMakingControllerConfigBase):
         json_schema_extra={
             "prompt": "Enter the decrease trailing stop interval seconds(0): ",
             "prompt_on_new": True})
+    refresh_time_align: bool = Field(
+        default=True, json_schema_extra={"is_updatable": True})
 
 
 class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
@@ -253,13 +255,30 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
 
     def determine_early_take_profit(self):
         executors_to_early_stop = []
+        
+        if not self.config.refresh_time_align and self.config.early_stop_decrease_interval <= 0:
+            return executors_to_early_stop
+            
+        if self.config.refresh_time_align and not pmm_common.BACKTESTING:
+            current_timestamp = self.market_data_provider.time()
+            current_second = datetime.fromtimestamp(current_timestamp).second
+            
+            if current_second < 2:
+                for executor_info in self.executors_info:
+                    if executor_info.is_active and not executor_info.is_trading:
+                        execution_seconds = current_timestamp - executor_info.timestamp
+                        remaining_seconds = self.config.executor_refresh_time - execution_seconds
+                        candle_seconds = CandlesBase.interval_to_seconds[self.config.candle_interval]
+                        if remaining_seconds < candle_seconds:
+                            executors_to_early_stop.append(executor_info)
+                            self.log_msg(f'Add {executor_info} to early stop')
             
         if self.config.early_stop_decrease_interval <= 0:
             return executors_to_early_stop
         
         for executor_info in self.executors_info:
-            execution_time = self.market_data_provider.time() - executor_info.timestamp
-            time_factor = round(execution_time / float(self.config.early_stop_decrease_interval), 1)
+            execution_seconds = self.market_data_provider.time() - executor_info.timestamp
+            time_factor = round(execution_seconds / float(self.config.early_stop_decrease_interval), 1)
             if time_factor <= 1:
                 continue
             
@@ -268,7 +287,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
             early_take_profit = max(self.config.take_profit / Decimal(time_factor), self.config.early_stop_activation_price_min)
             if executor_info.net_pnl_pct > early_take_profit:
                 executors_to_early_stop.append(executor_info)
-                self.log_msg(f'Add {executor_info} to early take profit, pnl:{executor_info.net_pnl_pct:.2%}, threshold:{early_take_profit:.2f}, execution_time:{execution_time}s')
+                self.log_msg(f'Add {executor_info} to early take profit, pnl:{executor_info.net_pnl_pct:.2%}, threshold:{early_take_profit:.2f}, execution_time:{execution_seconds}s')
         
         if len(executors_to_early_stop) > 0:
             self.log_msg(f'Added {len(executors_to_early_stop)} executors to early take profit')
