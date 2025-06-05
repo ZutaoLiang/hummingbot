@@ -261,11 +261,10 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         if not self.config.refresh_time_align and self.config.early_stop_decrease_interval <= 0:
             return executors_to_early_stop
             
-        if self.config.refresh_time_align and not pmm_common.BACKTESTING:
+        if self.config.refresh_time_align and not pmm_common.BACKTESTING and self.time_align_refreshable:
             current_timestamp = self.market_data_provider.time()
             current_second = datetime.fromtimestamp(current_timestamp).second
-            
-            if current_second < 5 and self.time_align_refreshable:
+            if current_second < 5:
                 for executor_info in self.executors_info:
                     if executor_info.is_active and not executor_info.is_trading:
                         execution_end_timestamp = executor_info.timestamp + self.config.executor_refresh_time
