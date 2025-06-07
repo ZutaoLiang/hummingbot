@@ -6,6 +6,7 @@ sys.path.append(os.path.join(current_dir, '..'))
 import warnings
 warnings.filterwarnings("ignore")
 import time
+import glob
 from decimal import Decimal
 from typing import List, Dict, Optional
 from dataclasses import dataclass
@@ -303,7 +304,17 @@ class CacheableBacktestingDataProvider(BacktestingDataProvider):
     def _load_market_data_from_local(self, key: str):
         file_path = os.path.join(self.data_dir, self._get_local_market_data_file(key))
         if not os.path.exists(file_path):
-            return pd.DataFrame()
+            files = glob.glob(os.path.join(self.data_dir, f"{key}-*.parquet"))
+            
+            existing = False
+            for f in files:
+                if int(f.split('-')[-2]) <= self.start_time and self.end_time <= int(f.split('-')[-1].split('.')[0]):
+                    file_path = f
+                    existing = True
+                    break
+                
+            if not existing:
+                return pd.DataFrame()
         
         # print(f'Loaded market data from {file_path}')
         return index_and_sort_by_timestamp(pd.read_parquet(file_path, engine="pyarrow"))
