@@ -793,17 +793,17 @@ class ParamSpace:
         backtest_params = []
         batch = 1
         
-        executor_refresh_time_space = [60, 120, 180]
+        executor_refresh_time_space = [60, 120, 180, 240]
         take_profit_space = np.arange(1, 8.1, 1)
         stop_loss_space = np.arange(2, 10.1, 1)
         # cooldown_time_space = [600, 900, 1800]
-        spread_space = [[1], [2], [3], [4]]
+        spread_space = [[0.5], [1], [2], [3], [4]]
         # trailing_stop_space = np.arange(0.015, 0.026, 0.005)
         # cci_threshold_space = [80]
         # length_space = np.arange(20, 41, 10)
-        # natr_length_space = np.arange(7, 22, 7)
-        widen_space = np.arange(2, 3.1, 1)
-        narrow_space = np.arange(0.5, 1.55, 0.5)
+        # natr_length_space = [7, 14, 21]
+        widen_space = [1, 2, 3]
+        narrow_space = [0.5, 1, 1.5]
         
         for executor_refresh_time in executor_refresh_time_space:
             for take_profit in take_profit_space:
@@ -813,30 +813,29 @@ class ParamSpace:
                         # for trailing_stop in trailing_stop_space:
                         # for cci_threshold in cci_threshold_space:
                             # for length in length_space:
-                            # for natr_length in natr_length_space:
-                                # for widen in widen_space:
-                                    # for narrow in narrow_space:
-
-                        backtest_param = copy.deepcopy(base_backtest_param)
-            
-                        config_dict = backtest_param.config_dict
-                        config_dict['executor_refresh_time'] = executor_refresh_time
-                        config_dict['take_profit'] = take_profit
-                        config_dict['stop_loss'] = stop_loss
-                        # config_dict['cooldown_time'] = cooldown_time
-                        config_dict['buy_spreads'] = spread
-                        config_dict['sell_spreads'] = spread
-                        # config_dict['trailing_stop']['activation_price'] = trailing_stop
-                        # config_dict['cci_threshold'] = cci_threshold
-                        # config_dict['sma_length'] = length
-                        # config_dict['cci_length'] = length
-                        # config_dict['natr_length'] = natr_length
-                        # config_dict['widen_spread_multiplier'] = widen
-                        # config_dict['narrow_spread_multiplier'] = narrow
-                        
-                        backtest_param.batch = batch
-                        backtest_params.append(backtest_param)
-                        batch += 1
+                        # for natr_length in natr_length_space:
+                        for widen in widen_space:
+                            for narrow in narrow_space:
+                                backtest_param = copy.deepcopy(base_backtest_param)
+                    
+                                config_dict = backtest_param.config_dict
+                                config_dict['executor_refresh_time'] = executor_refresh_time
+                                config_dict['take_profit'] = take_profit
+                                config_dict['stop_loss'] = stop_loss
+                                # config_dict['cooldown_time'] = cooldown_time
+                                config_dict['buy_spreads'] = spread
+                                config_dict['sell_spreads'] = spread
+                                # config_dict['trailing_stop']['activation_price'] = trailing_stop
+                                # config_dict['cci_threshold'] = cci_threshold
+                                # config_dict['sma_length'] = length
+                                # config_dict['cci_length'] = length
+                                # config_dict['natr_length'] = natr_length
+                                config_dict['widen_spread_multiplier'] = widen
+                                config_dict['narrow_spread_multiplier'] = narrow
+                                
+                                backtest_param.batch = batch
+                                backtest_params.append(backtest_param)
+                                batch += 1
 
         return backtest_params
 

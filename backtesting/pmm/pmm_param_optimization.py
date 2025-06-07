@@ -19,7 +19,7 @@ from datetime import datetime
 
 if __name__ == '__main__':
     start_date = datetime(2025, 6, 1)
-    end_date = datetime(2025, 6, 4)
+    end_date = datetime(2025, 6, 7)
 
     config_file = 'pmm_param_optimization.yml'
 
@@ -28,4 +28,4 @@ if __name__ == '__main__':
     
     space_level = 100
     param_optimization = backtest_engine.ParamOptimization()
-    param_optimization.run(current_dir, config_file, start_date, end_date, space_level, '1m', 0.0005, 0.0005)
+    param_optimization.run(current_dir, config_file, start_date, end_date, space_level, '1m', 0.0004, 0.0001)
