@@ -223,7 +223,7 @@ class MockPositionExecutor(PositionExecutor):
         factor = -1 if open_order.trade_type == TradeType.SELL else 1
 
         if close_type == CloseType.TAKE_PROFIT:
-            close_price = open_order.price * (1 + factor * self.config.triple_barrier_config.take_profit)
+            close_price = self.take_profit_price
             return self.calc_filled_price_with_slippage(close_price, OrderType.MARKET, self.close_order_side)
         elif close_type == CloseType.STOP_LOSS:
             close_price = open_order.price * (1 + factor * self.config.triple_barrier_config.stop_loss)
@@ -300,23 +300,22 @@ class MockPositionExecutor(PositionExecutor):
 
     def place_take_profit_limit_order(self):
         super().place_take_profit_limit_order()
+            
+    def control_take_profit(self):
+        super().control_take_profit()
         
         if not self._take_profit_limit_order:
             return
         
         order_id = self._take_profit_limit_order.order_id
         order = self.get_in_flight_order(self.config.connector_name, order_id)
-        if not order:
-            return
-            
-        if self._open_order:
-            order.creation_timestamp = self._open_order.creation_timestamp
-            self.update_in_flight_order(order_id, order)
- 
+        
         if self.can_fill(order.order_type, order.trade_type, order.price):
             self.update_order_state(order, OrderState.FILLED)
             self.update_order_trade(order)
-            self.build_and_process_completed_event(order)
+            event =self.build_and_process_completed_event(order)
+            
+            self.logger().warning(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(event.timestamp)}] Close take profit limit filled: fill price={order.price:.7f}, amount={order.amount*order.price:.7f}, {order.trade_type.name}-{order.order_type.name}-{order.position.name}")
 
     def build_and_process_completed_event(self, order: InFlightOrder):
         event_class = BuyOrderCompletedEvent if self.is_buy() else SellOrderCompletedEvent
@@ -335,6 +334,7 @@ class MockPositionExecutor(PositionExecutor):
             order_type=order.order_type
         )
         self.process_order_completed_event(None, None, event)
+        return event
         
     def cancel_order(self, order: TrackedOrder):
         if not order:
@@ -394,11 +394,10 @@ class MockPositionExecutor(PositionExecutor):
             if self.determine_filled(self._open_order, is_buy):
                 self.entry_timestamp = self.current_time()
                 
-            self.determine_filled(self._take_profit_limit_order, is_buy)
-            
             self.control_barriers()
             
             if self.status == RunnableStatus.SHUTTING_DOWN:
+                super().stop()
                 return False
         
         return True
