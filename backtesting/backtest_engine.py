@@ -31,7 +31,6 @@ from hummingbot.data_feed.candles_feed.data_types import CandlesConfig, Historic
 from hummingbot.data_feed.candles_feed.candles_base import CandlesBase
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig
 from hummingbot.strategy_v2.controllers import ControllerConfigBase
-from hummingbot.strategy_v2.models.base import RunnableStatus
 from hummingbot.strategy_v2.models.executors import CloseType
 from hummingbot.strategy_v2.models.executors_info import ExecutorInfo
 from hummingbot.strategy_v2.models.executor_actions import CreateExecutorAction, StopExecutorAction

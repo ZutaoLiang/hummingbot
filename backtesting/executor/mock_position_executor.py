@@ -152,7 +152,7 @@ class MockPositionExecutor(PositionExecutor):
         if not order:
             return
         
-        fill_price = self.calc_filled_price(order)
+        fill_price = self.calc_order_filled_price(order)
         order.update_with_trade_update(TradeUpdate(
             trade_id=uuid.uuid4(),
             client_order_id=order.client_order_id,
@@ -213,37 +213,62 @@ class MockPositionExecutor(PositionExecutor):
         if price.is_nan():
             return self.current_market_price
         return price
+    
+    def calc_close_price_for_market_order(self, price: Decimal, close_type: CloseType) -> Decimal:
+        if not self._open_order or not self._open_order.order:
+            return price
+        
+        open_order = self._open_order.order
+        
+        factor = -1 if open_order.trade_type == TradeType.SELL else 1
+
+        if close_type == CloseType.TAKE_PROFIT:
+            close_price = open_order.price * (1 + factor * self.config.triple_barrier_config.take_profit)
+            return self.calc_filled_price_with_slippage(close_price, OrderType.MARKET, self.close_order_side)
+        elif close_type == CloseType.STOP_LOSS:
+            close_price = open_order.price * (1 + factor * self.config.triple_barrier_config.stop_loss)
+            return self.calc_filled_price_with_slippage(close_price, OrderType.MARKET, self.close_order_side)
+        # elif close_type == CloseType.TRAILING_STOP:
+        #     return price  # TODO: to be implemented
+        elif close_type == CloseType.TIME_LIMIT:
+            return price
+    
+        return price
         
     def place_close_order_and_cancel_open_orders(self, close_type, price=Decimal("NaN")):
         price = self.process_nan_price(price)
+        price = self.calc_close_price_for_market_order(price, close_type)
         super().place_close_order_and_cancel_open_orders(close_type, price)
         
         if not self._close_order:
             return
         
         order_id = self._close_order.order_id
-        order = self.get_in_flight_order(self.config.connector_name, order_id)
-        if not order:
+        close_order = self.get_in_flight_order(self.config.connector_name, order_id)
+        if not close_order:
             return
         
         if self._open_order:
-            order.creation_timestamp = self._open_order.creation_timestamp
-            self.update_in_flight_order(order_id, order)
+            close_order.creation_timestamp = self._open_order.creation_timestamp
+            self.update_in_flight_order(order_id, close_order)
         
-        if self.can_fill(order.order_type, order.trade_type, price):
-            self.update_order_state(order, OrderState.FILLED)
-            self.update_order_trade(order)
-            self.build_and_process_filled_event(order, close_type)
+        if self.can_fill(close_order.order_type, close_order.trade_type, price):
+            self.update_order_state(close_order, OrderState.FILLED)
+            self.update_order_trade(close_order)
+            self.build_and_process_filled_event(close_order, close_type)
 
     def format_timestamp(self, current_timestamp):
         return datetime.fromtimestamp(current_timestamp).strftime('%m%d/%H:%M:%S')
     
-    def calc_filled_price(self, order: InFlightOrder) -> Decimal:
-        if order.order_type == OrderType.LIMIT:
-            return order.price
+    def calc_filled_price_with_slippage(self, price: Decimal, order_type: OrderType, trade_type: TradeType) -> Decimal:
+        if order_type == OrderType.LIMIT:
+            return price
         
-        factor = -1 if order.trade_type == TradeType.SELL else 1
-        return order.price * (1 + factor * self.slippage)
+        factor = -1 if trade_type == TradeType.SELL else 1
+        return price * (1 + factor * self.slippage)
+    
+    def calc_order_filled_price(self, order: InFlightOrder) -> Decimal:
+        return self.calc_filled_price_with_slippage(order.price, order.order_type, order.trade_type)
     
     def build_and_process_filled_event(self, order: InFlightOrder, close_type: CloseType = None):
         trade_fee = self.calc_fee(order)
@@ -254,7 +279,7 @@ class MockPositionExecutor(PositionExecutor):
             trading_pair=order.trading_pair,
             trade_type=order.trade_type,
             order_type=order.order_type,
-            price=self.calc_filled_price(order),
+            price=self.calc_order_filled_price(order),
             amount=order.amount,
             trade_fee=trade_fee,
             exchange_order_id=order.exchange_order_id,
@@ -266,12 +291,12 @@ class MockPositionExecutor(PositionExecutor):
         if order.position == PositionAction.CLOSE:
             open_order = self._open_order.order
             msg = f"[{self.format_timestamp(open_order.last_update_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Close {close_type.name}: " \
-                f"pnl={self.net_pnl_quote:.5f}, entry@{open_order.price:.5f}, filled@{filled_event.price:.5f}, fee={fee:.5f}, " \
-                f"amount={filled_event.amount*filled_event.price:.5f}, pct={self.net_pnl_pct:.2%}, " \
+                f"pnl={self.net_pnl_quote:.5f}, entry@{open_order.price:.7f}, filled@{filled_event.price:.7f}, fee={fee:.7f}, " \
+                f"amount={filled_event.amount*filled_event.price:.7f}, pct={self.net_pnl_pct:.2%}, " \
                 f"{filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}"
             self.logger().warning(f'\033[92m{msg}\033[0m' if self.net_pnl_quote > 0 else f'\033[91m{msg}\033[0m')
         else:
-            self.logger().info(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Open filled: fill price={filled_event.price:.5f}, amount={filled_event.amount*filled_event.price:.5f}, {filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}")
+            self.logger().info(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Open filled: fill price={filled_event.price:.7f}, amount={filled_event.amount*filled_event.price:.7f}, {filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}")
 
     def place_take_profit_limit_order(self):
         super().place_take_profit_limit_order()
