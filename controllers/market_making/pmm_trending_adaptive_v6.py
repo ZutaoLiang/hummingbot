@@ -160,9 +160,9 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         self.time_align_refreshable = True
 
         if not pmm_common.BACKTESTING:
-            snap1, snap2 = self.market_data_provider.get_order_book_snapshot(self.config.connector_name, self.config.trading_pair)
-            self.log_msg(f"{snap1.tail()}")
-            self.log_msg(f"{snap2.tail()}")
+            bid, ask = self.market_data_provider.get_order_book_snapshot(self.config.connector_name, self.config.trading_pair)
+            self.log_msg(f"{bid.head(10)}")
+            self.log_msg(f"{ask.head(10)}")
 
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
         """
