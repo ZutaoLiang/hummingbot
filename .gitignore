@@ -98,3 +98,5 @@ coverage.xml
 /**/data/*.parquet
 /**/data/*.pkl
 /**/result/*.csv
+
+.conda
