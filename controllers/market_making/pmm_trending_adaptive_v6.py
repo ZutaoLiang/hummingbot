@@ -159,6 +159,10 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         self.last_update_data_time = current_time
         self.time_align_refreshable = True
 
+        if not pmm_common.BACKTESTING:
+            order_book_snapshot = self.market_data_provider.get_order_book_snapshot(self.config.connector_name, self.config.trading_pair)
+            self.log_msg(f"{order_book_snapshot.head()}")
+
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
         """
         Get the spread and amount in quote for a given level id.
