@@ -114,7 +114,7 @@ class MockPositionExecutor(PositionExecutor):
         is_buy = side == TradeType.BUY
         if (is_buy and market_price > price) or (not is_buy and market_price < price):
             return False
-        return True            
+        return True
     
     def update_order_state(self, order: InFlightOrder, order_state: OrderState):
         if not order:
@@ -219,14 +219,13 @@ class MockPositionExecutor(PositionExecutor):
             return price
         
         open_order = self._open_order.order
-        
-        factor = -1 if open_order.trade_type == TradeType.SELL else 1
 
         if close_type == CloseType.TAKE_PROFIT:
             close_price = self.take_profit_price
             return self.calc_filled_price_with_slippage(close_price, OrderType.MARKET, self.close_order_side)
         elif close_type == CloseType.STOP_LOSS:
-            close_price = open_order.price * (1 + factor * self.config.triple_barrier_config.stop_loss)
+            factor = 1 if open_order.trade_type == TradeType.SELL else -1
+            close_price = self.entry_price * (1 + factor * self.config.triple_barrier_config.stop_loss)
             return self.calc_filled_price_with_slippage(close_price, OrderType.MARKET, self.close_order_side)
         # elif close_type == CloseType.TRAILING_STOP:
         #     return price  # TODO: to be implemented
@@ -291,15 +290,12 @@ class MockPositionExecutor(PositionExecutor):
         if order.position == PositionAction.CLOSE:
             open_order = self._open_order.order
             msg = f"[{self.format_timestamp(open_order.last_update_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Close {close_type.name}: " \
-                f"pnl={self.net_pnl_quote:.5f}, entry@{open_order.price:.7f}, filled@{filled_event.price:.7f}, fee={fee:.7f}, " \
-                f"amount={filled_event.amount*filled_event.price:.7f}, pct={self.net_pnl_pct:.2%}, " \
+                f"pnl={self.net_pnl_quote:.5f}, pct={self.net_pnl_pct:.2%}, entry@{open_order.price:.7f}, filled@{filled_event.price:.7f}, amount={filled_event.amount:.2f}, " \
+                f"quote={filled_event.amount*filled_event.price:.7f}, fee={fee:.7f}, " \
                 f"{filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}"
             self.logger().warning(f'\033[92m{msg}\033[0m' if self.net_pnl_quote > 0 else f'\033[91m{msg}\033[0m')
         else:
             self.logger().info(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Open filled: fill price={filled_event.price:.7f}, amount={filled_event.amount*filled_event.price:.7f}, {filled_event.trade_type.name}-{filled_event.order_type.name}-{filled_event.position.name}")
-
-    def place_take_profit_limit_order(self):
-        super().place_take_profit_limit_order()
             
     def control_take_profit(self):
         super().control_take_profit()
@@ -307,15 +303,23 @@ class MockPositionExecutor(PositionExecutor):
         if not self._take_profit_limit_order:
             return
         
-        order_id = self._take_profit_limit_order.order_id
-        order = self.get_in_flight_order(self.config.connector_name, order_id)
+        open_order = self._open_order.order
         
-        if self.can_fill(order.order_type, order.trade_type, order.price):
-            self.update_order_state(order, OrderState.FILLED)
-            self.update_order_trade(order)
-            event =self.build_and_process_completed_event(order)
+        order_id = self._take_profit_limit_order.order_id
+        take_profit_order = self.get_in_flight_order(self.config.connector_name, order_id)
+        
+        if self.can_fill(take_profit_order.order_type, take_profit_order.trade_type, take_profit_order.price):
+            self.update_order_state(take_profit_order, OrderState.FILLED)
+            self.update_order_trade(take_profit_order)
+            # will set close order to take profit order
+            self.build_and_process_completed_event(take_profit_order)
             
-            self.logger().warning(f"[{self.format_timestamp(order.creation_timestamp)}-{self.format_timestamp(event.timestamp)}] Close take profit limit filled: fill price={order.price:.7f}, amount={order.amount*order.price:.7f}, {order.trade_type.name}-{order.order_type.name}-{order.position.name}")
+            fee = take_profit_order.cumulative_fee_paid(token=take_profit_order.quote_asset)
+            msg = f"[{self.format_timestamp(take_profit_order.creation_timestamp)}-{self.format_timestamp(take_profit_order.last_update_timestamp)}] Close TAKE_PROFIT limit: " \
+                f"pnl={self.net_pnl_quote:.5f}, pct={self.net_pnl_pct:.2%}, entry@{open_order.price:.7f}, filled@{take_profit_order.price:.7f}, amount={take_profit_order.amount:.2f}, " \
+                f"quote={take_profit_order.amount*take_profit_order.price:.7f}, fee={fee:.7f}, " \
+                f"{take_profit_order.trade_type.name}-{take_profit_order.order_type.name}-{take_profit_order.position.name}"
+            self.logger().warning(f'\033[92m{msg}\033[0m' if self.net_pnl_quote > 0 else f'\033[91m{msg}\033[0m')
 
     def build_and_process_completed_event(self, order: InFlightOrder):
         event_class = BuyOrderCompletedEvent if self.is_buy() else SellOrderCompletedEvent
@@ -334,7 +338,6 @@ class MockPositionExecutor(PositionExecutor):
             order_type=order.order_type
         )
         self.process_order_completed_event(None, None, event)
-        return event
         
     def cancel_order(self, order: TrackedOrder):
         if not order:

@@ -5,13 +5,14 @@ from datetime import datetime
 import pandas_ta as ta
 from pydantic import Field
 
-from hummingbot.core.data_type.common import OrderType, PriceType, TradeType
+from hummingbot.core.data_type.common import OrderType, TradeType
 from hummingbot.data_feed.candles_feed.data_types import CandlesConfig
 from hummingbot.data_feed.candles_feed.candles_base import CandlesBase
 from hummingbot.strategy_v2.controllers.market_making_controller_base import (
     MarketMakingControllerBase,
     MarketMakingControllerConfigBase,
 )
+from hummingbot.strategy_v2.models.executors import CloseType
 from hummingbot.strategy_v2.models.executor_actions import ExecutorAction, StopExecutorAction
 from hummingbot.strategy_v2.executors.position_executor.data_types import PositionExecutorConfig, TrailingStop, TripleBarrierConfig
 from controllers.market_making import pmm_common
@@ -255,7 +256,22 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
             side=trade_type,
         )
 
-    def determine_early_take_profit(self):
+    def get_levels_to_execute(self) -> List[str]:
+        current_timestamp = self.market_data_provider.time()
+        current_minute = datetime.fromtimestamp(current_timestamp).minute
+        candle_seconds = CandlesBase.interval_to_seconds[self.config.candles_config[0].interval]
+        prevent_reentry_close_types = [CloseType.TAKE_PROFIT, CloseType.STOP_LOSS, CloseType.TRAILING_STOP]
+        working_levels = self.filter_executors(
+            executors=self.executors_info,
+            filter_func=lambda x: 
+                x.is_active
+                or (x.close_type == CloseType.STOP_LOSS and current_timestamp - x.close_timestamp < self.config.cooldown_time)
+                or (x.close_type in prevent_reentry_close_types and current_timestamp - x.close_timestamp < candle_seconds and current_minute == datetime.fromtimestamp(x.close_timestamp).minute)
+        )
+        working_levels_ids = [executor.custom_info["level_id"] for executor in working_levels]
+        return self.get_not_active_levels_ids(working_levels_ids)
+
+    def determine_early_stop(self):
         executors_to_early_stop = []
         
         if not self.config.refresh_time_align and self.config.early_stop_decrease_interval <= 0:
@@ -296,7 +312,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         return executors_to_early_stop
 
     def executors_to_early_stop(self) -> List[ExecutorAction]:
-        executors = self.determine_early_take_profit()
+        executors = self.determine_early_stop()
         return [StopExecutorAction(
             controller_id=self.config.id,
             executor_id=executor.id) for executor in executors]

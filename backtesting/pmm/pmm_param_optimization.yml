@@ -18,7 +18,7 @@ manual_kill_switch: false
 position_mode: HEDGE
 stop_loss: 9
 take_profit: 3
-take_profit_order_type: 1
+take_profit_order_type: 2
 time_limit: 86400
 total_amount_quote: 75
 trading_pair: FARTCOIN-USDT
