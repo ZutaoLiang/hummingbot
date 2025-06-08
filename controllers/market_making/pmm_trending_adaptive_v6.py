@@ -251,10 +251,10 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         
         if not pmm_common.BACKTESTING or pmm_common.LOG_DETAIL:
             self.log_msg(f"Creating executor {level_id} with price: {price:.7f}(reference:{reference_price:.7f}), "
-                         f"quote: {amount * price:.7f}, amount: {amount:.1f}, trade_type: {trade_type}, "
-                         f"stop_loss: {stop_loss:.3%}, take_profit: {take_profit:.3%}, "
-                         f"trailing_stop_activation_price: {trailing_stop_activation_price:.3%}, "
-                         f"trailing_stop_delta: {trailing_stop_delta:.3%}")
+                         f"quote: {amount * price:.7f}, amount: {amount:.2f}, trade_type: {trade_type}, "
+                         f"stop_loss: {stop_loss:.4%}, take_profit: {take_profit:.4%}, "
+                         f"trailing_stop_activation_price: {trailing_stop_activation_price:.4%}, "
+                         f"trailing_stop_delta: {trailing_stop_delta:.4%}")
         
         return PositionExecutorConfig(
             timestamp=self.market_data_provider.time(),
