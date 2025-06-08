@@ -37,4 +37,5 @@ widen_spread_multiplier: 2
 narrow_spread_multiplier: 1
 early_stop_activation_price_min: 0.006
 early_stop_decrease_interval: 0
-# backtesting: true
+trade_cost: 0.0002
+max_stop_loss: 0.02

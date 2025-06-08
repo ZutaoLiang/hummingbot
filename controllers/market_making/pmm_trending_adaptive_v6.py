@@ -85,6 +85,12 @@ class PMMTrendingAdaptiveV6ControllerConfig(MarketMakingControllerConfigBase):
             "prompt_on_new": True})
     refresh_time_align: bool = Field(
         default=True, json_schema_extra={"is_updatable": True})
+    trade_cost: float = Field(
+        default=0.0002,
+        json_schema_extra={"prompt": "Enter the trade cost(0.0002): ", "prompt_on_new": True})
+    max_stop_loss: float = Field(
+        default=0.025,
+        json_schema_extra={"prompt": "Enter the max stop loss(0.025): ", "prompt_on_new": True})
 
 
 class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
@@ -230,8 +236,8 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         # trailing_stop_activation_price = max(initial_config.trailing_stop.activation_price, base_spread_multiplier * 3)
         # trailing_stop_delta = max(initial_config.trailing_stop.trailing_delta, base_spread_multiplier)
         
-        stop_loss  = abs(initial_config.stop_loss * natr)
-        take_profit = abs(initial_config.take_profit * natr)
+        stop_loss = min(abs(initial_config.stop_loss * natr), Decimal(self.config.max_stop_loss))
+        take_profit = abs(initial_config.take_profit * natr) + Decimal(self.config.trade_cost)
         trailing_stop_activation_price = abs(initial_config.trailing_stop.activation_price * natr)
         trailing_stop_delta = abs(natr * initial_config.trailing_stop.trailing_delta * natr)
         time_limit = initial_config.time_limit

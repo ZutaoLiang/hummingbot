@@ -798,11 +798,11 @@ class ParamSpace:
         backtest_params = []
         batch = 1
         
-        executor_refresh_time_space = [60, 120, 180, 240]
+        executor_refresh_time_space = [60, 120]
         take_profit_space = np.arange(1, 8.1, 1)
-        stop_loss_space = np.arange(2, 10.1, 1)
+        stop_loss_space = np.arange(2, 12.1, 1)
         # cooldown_time_space = [600, 900, 1800]
-        spread_space = [[0.5], [1], [2], [3], [4]]
+        spread_space = [[2], [3], [4], [5]]
         # trailing_stop_space = np.arange(0.015, 0.026, 0.005)
         # cci_threshold_space = [80]
         # length_space = np.arange(20, 41, 10)
