@@ -131,7 +131,7 @@ class MockPositionExecutor(PositionExecutor):
     def calc_fee(self, order: InFlightOrder) -> TradeFeeBase:
         fee_schema = TradeFeeSchema()
         if self.is_perpetual:
-            fee = TradeFeeBase.new_perpetual_fee(
+            trade_fee = TradeFeeBase.new_perpetual_fee(
                 fee_schema=fee_schema,
                 position_action=order.position,
                 percent=self.trade_cost,
@@ -139,14 +139,14 @@ class MockPositionExecutor(PositionExecutor):
                 flat_fees=[]
             )
         else:
-            fee = TradeFeeBase.new_spot_fee(
+            trade_fee = TradeFeeBase.new_spot_fee(
                 fee_schema=fee_schema,
                 trade_type=order.trade_type,
                 percent=self.trade_cost,
                 percent_token=None,
                 flat_fees=[]
             )
-        return fee
+        return trade_fee
     
     def update_order_trade(self, order: InFlightOrder):
         if not order:
@@ -256,6 +256,17 @@ class MockPositionExecutor(PositionExecutor):
             self.update_order_trade(close_order)
             self.build_and_process_filled_event(close_order, close_type)
 
+    def place_take_profit_limit_order(self):
+        entry_price = self.take_profit_price
+        if self.config.triple_barrier_config.take_profit_order_type == OrderType.LIMIT:
+            # Actually when placing take profit limit order, the take_profit_price does not include trade_cost.
+            # It differs from the take_profit_price calculated in market order type, which will calculate pnl including fees.
+            # Here just show the difference between the two prices. The backtest result will also be different but it's fine.
+            factor = -1 if self._open_order.order.trade_type == TradeType.SELL else 1
+            entry_price = self.take_profit_price * (1 + factor * self.trade_cost)
+        
+        return super().place_take_profit_limit_order()
+
     def format_timestamp(self, current_timestamp):
         return datetime.fromtimestamp(current_timestamp).strftime('%m%d/%H:%M:%S')
     
@@ -271,7 +282,6 @@ class MockPositionExecutor(PositionExecutor):
     
     def build_and_process_filled_event(self, order: InFlightOrder, close_type: CloseType = None):
         trade_fee = self.calc_fee(order)
-        fee = order.cumulative_fee_paid(token=order.quote_asset)
         filled_event = OrderFilledEvent(
             timestamp=self.current_time(),
             order_id=order.client_order_id,
@@ -287,6 +297,7 @@ class MockPositionExecutor(PositionExecutor):
         )
         self.process_order_filled_event(None, None, filled_event)
         
+        fee = self.get_cum_fees_quote()
         if order.position == PositionAction.CLOSE:
             open_order = self._open_order.order
             msg = f"[{self.format_timestamp(open_order.last_update_timestamp)}-{self.format_timestamp(filled_event.timestamp)}] Close {close_type.name}: " \
@@ -314,7 +325,7 @@ class MockPositionExecutor(PositionExecutor):
             # will set close order to take profit order
             self.build_and_process_completed_event(take_profit_order)
             
-            fee = take_profit_order.cumulative_fee_paid(token=take_profit_order.quote_asset)
+            fee = self.get_cum_fees_quote()
             msg = f"[{self.format_timestamp(take_profit_order.creation_timestamp)}-{self.format_timestamp(take_profit_order.last_update_timestamp)}] Close TAKE_PROFIT limit: " \
                 f"pnl={self.net_pnl_quote:.5f}, pct={self.net_pnl_pct:.2%}, entry@{open_order.price:.7f}, filled@{take_profit_order.price:.7f}, amount={take_profit_order.amount:.2f}, " \
                 f"quote={take_profit_order.amount*take_profit_order.price:.7f}, fee={fee:.7f}, " \

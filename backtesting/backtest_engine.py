@@ -748,13 +748,7 @@ class BacktestEngine(BacktestingEngineBase):
             "results": results,
             "processed_data": self.controller.processed_data,
         }
-    
-    # def update_to_processed_data(self, row):
-    #     key = f"{self.controller.config.connector_name}_{self.controller.config.trading_pair}"
-    #     self.controller.market_data_provider.prices = {key: Decimal(row["close_bt"])}
-    #     self.controller.market_data_provider._time = row["timestamp"]
-    #     self.controller.processed_data.update(row.to_dict())
-  
+ 
 
 @dataclass
 class BacktestParam:

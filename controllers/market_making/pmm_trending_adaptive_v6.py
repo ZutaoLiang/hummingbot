@@ -2,7 +2,14 @@ from decimal import Decimal
 from typing import List, Tuple
 from datetime import datetime
 
-import pandas_ta as ta
+talib_available = False
+try:
+    import talib as ta
+    talib_available = True
+except ImportError:
+    talib = None
+
+import pandas_ta as pta
 from pydantic import Field
 
 from hummingbot.core.data_type.common import OrderType, TradeType
@@ -119,11 +126,11 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         else:
             return
         
-        sma_short = ta.sma(candles["close"], length=self.config.sma_short_length, talib=False)
-        sma = ta.sma(candles["close"], length=self.config.sma_length, talib=False)
-        cci = ta.cci(candles["high"], candles["low"], candles["close"], length=self.config.cci_length, talib=False)
-        natr = ta.natr(candles["high"], candles["low"], candles["close"], length=self.config.natr_length, scalar=1, talib=False)
-        # adx = ta.adx(candles["high"], candles["low"], candles["close"], length=self.config.adx_length)
+        sma_short = pta.sma(candles["close"], length=self.config.sma_short_length, talib=talib_available)
+        sma = pta.sma(candles["close"], length=self.config.sma_length, talib=talib_available)
+        cci = pta.cci(candles["high"], candles["low"], candles["close"], length=self.config.cci_length, talib=talib_available)
+        natr = pta.natr(candles["high"], candles["low"], candles["close"], length=self.config.natr_length, talib=talib_available) / 100
+        # adx = pta.adx(candles["high"], candles["low"], candles["close"], length=self.config.adx_length)
         
         candle_close = candles["close"].iloc[-1]
         candle_sma_short = sma_short.iloc[-1]
@@ -159,10 +166,10 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         self.last_update_data_time = current_time
         self.time_align_refreshable = True
 
-        if not pmm_common.BACKTESTING:
-            bid, ask = self.market_data_provider.get_order_book_snapshot(self.config.connector_name, self.config.trading_pair)
-            self.log_msg(f"{bid.head(10)}")
-            self.log_msg(f"{ask.head(10)}")
+        # if not pmm_common.BACKTESTING:
+        #     bid, ask = self.market_data_provider.get_order_book_snapshot(self.config.connector_name, self.config.trading_pair)
+        #     self.log_msg(f"{bid.head(10)}")
+        #     self.log_msg(f"{ask.head(10)}")
 
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
         """
