@@ -667,20 +667,34 @@ class BacktestEngine(BacktestingEngineBase):
             current_timestamp = int(row["timestamp"])
             self.backtesting_data_provider.update_time(current_timestamp)
             
+            # stopped_level_ids: List[str] = []
+            
+            # 0. refresh executors
+            # update the executors info for controller to refresh
+            self.controller.executors_info = [e.executor_info for e in active_executors.values()] + stopped_executors_info
+            refresh_actions = self.controller.executors_to_refresh()
+            for refresh_action in refresh_actions:
+                if not isinstance(refresh_action, StopExecutorAction):
+                    continue
+                
+                # inactive executor id will be deleted in dict so we need to make a copy of items
+                for executor_id, executor in list(active_executors.items()):
+                    if not executor_id == refresh_action.executor_id:
+                        continue
+                    executor.early_stop()
+                    del active_executors[executor_id]
+                    stopped_executors_info.append(executor.executor_info)
+
             # 1. simulate the control task in position executor
-            active_executors_info: List[ExecutorInfo] = []
-            stopped_level_ids: List[str] = []
             for executor_id, executor in list(active_executors.items()):
                 active = executor.on_market_data(row)
-                if active:
-                    active_executors_info.append(executor.executor_info)
-                else:
-                    stopped_level_ids.append(executor.config.level_id)
+                if not active:
+                    # stopped_level_ids.append(executor.config.level_id)
                     del active_executors[executor_id]
                     stopped_executors_info.append(executor.executor_info)
             
             # update the executors info for controller to determine the actions
-            self.controller.executors_info = active_executors_info + stopped_executors_info
+            self.controller.executors_info = [e.executor_info for e in active_executors.values()] + stopped_executors_info
 
             # 2. simulate the control task in controller
             # 2.1 update the processed data
@@ -699,17 +713,17 @@ class BacktestEngine(BacktestingEngineBase):
             actions = self.controller.determine_executor_actions()
             
             # 2.2.1 process create actions
-            for action in actions:
-                if not isinstance(action, CreateExecutorAction):
+            for refresh_action in actions:
+                if not isinstance(refresh_action, CreateExecutorAction):
                     continue
                 
-                # prevent create actions for current stopped level. continue determination on the next market data.
+                # # prevent create actions for current stopped level. continue determination on the next market data.
                 # if action.executor_config.level_id in stopped_level_ids:
                 #     continue
                 
-                executor_id = action.executor_config.id
+                executor_id = refresh_action.executor_config.id
                 executor = MockPositionExecutor(
-                    config=action.executor_config,
+                    config=refresh_action.executor_config,
                     market_data_provider=self.backtesting_data_provider,
                     trade_cost=trade_cost,
                     slippage=slippage
@@ -718,18 +732,17 @@ class BacktestEngine(BacktestingEngineBase):
                 
                 if active:
                     active_executors[executor_id] = executor
-                    active_executors_info.append(executor.executor_info)
                 else:
                     stopped_executors_info.append(executor.executor_info)
                     
             # 2.2.2 process stop actions
-            for action in actions:
-                if not isinstance(action, StopExecutorAction):
+            for refresh_action in actions:
+                if not isinstance(refresh_action, StopExecutorAction):
                     continue
                 
                 # inactive executor id will be deleted in dict so we need to make a copy of items
                 for executor_id, executor in list(active_executors.items()):
-                    if not executor_id == action.executor_id:
+                    if not executor_id == refresh_action.executor_id:
                         continue
                     executor.early_stop()
                     del active_executors[executor_id]
@@ -808,7 +821,7 @@ class ParamSpace:
         backtest_params = []
         batch = 1
         
-        executor_refresh_time_space = [60, 120]
+        executor_refresh_time_space = [59, 119, 179, 239]
         take_profit_space = np.arange(1, 8.1, 1)
         stop_loss_space = np.arange(2, 12.1, 1)
         # cooldown_time_space = [600, 900, 1800]

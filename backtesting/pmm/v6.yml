@@ -11,7 +11,7 @@ connector_name: binance_perpetual
 controller_name: pmm_trending_adaptive_v6
 controller_type: market_making
 cooldown_time: 1800
-executor_refresh_time: 119
+executor_refresh_time: 59
 id: v6-1
 leverage: 25
 manual_kill_switch: false
