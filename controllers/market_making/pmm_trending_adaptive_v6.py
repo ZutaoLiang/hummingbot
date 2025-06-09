@@ -275,6 +275,9 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         )
 
     def get_levels_to_execute(self) -> List[str]:
+        if pmm_common.BACKTESTING:
+            return super().get_levels_to_execute()
+        
         current_timestamp = self.market_data_provider.time()
         current_minute = datetime.fromtimestamp(current_timestamp).minute
         candle_seconds = CandlesBase.interval_to_seconds[self.config.candles_config[0].interval]
@@ -295,6 +298,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         if not self.config.refresh_time_align and self.config.early_stop_decrease_interval <= 0:
             return executors_to_early_stop
             
+        # make the order placing time align to the backtest time
         if self.config.refresh_time_align and not pmm_common.BACKTESTING and self.time_align_refreshable:
             current_timestamp = self.market_data_provider.time()
             current_second = datetime.fromtimestamp(current_timestamp).second

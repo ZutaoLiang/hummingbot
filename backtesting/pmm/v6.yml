@@ -11,17 +11,17 @@ connector_name: binance_perpetual
 controller_name: pmm_trending_adaptive_v6
 controller_type: market_making
 cooldown_time: 1800
-executor_refresh_time: 60
+executor_refresh_time: 119
 id: v6-1
 leverage: 25
 manual_kill_switch: false
 position_mode: HEDGE
-stop_loss: 6
+stop_loss: 10
 take_profit: 4
 take_profit_order_type: 2
 time_limit: 86400
 total_amount_quote: 75
-trading_pair: 1000PEPE-USDT
+trading_pair: WIF-USDT
 trailing_stop:
   activation_price: 100
   trailing_delta: 0.5
@@ -33,7 +33,9 @@ sma_length: 30
 cci_length: 30
 cci_threshold: 80
 natr_length: 15
-widen_spread_multiplier: 2
-narrow_spread_multiplier: 1
+widen_spread_multiplier: 3
+narrow_spread_multiplier: 1.5
 early_stop_activation_price_min: 0.006
 early_stop_decrease_interval: 0
+trade_cost: 0.0002
+max_stop_loss: 0.03

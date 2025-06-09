@@ -88,6 +88,7 @@ class BacktestResult:
         time_limit = results["close_types"].get("TIME_LIMIT", 0)
         trailing_stop = results["close_types"].get("TRAILING_STOP", 0)
         early_stop = results["close_types"].get("EARLY_STOP", 0)
+        expired = results["close_types"].get("EXPIRED", 0)
         trading_pair = self.controller_config.dict().get('trading_pair')
         return f"""
 =====================================================================================================================================    
@@ -95,7 +96,7 @@ class BacktestResult:
 Net PNL: ${net_pnl_quote:.2f} ({net_pnl_pct*100:.2f}%) | Max Drawdown: ${max_drawdown:.2f} ({max_drawdown_pct*100:.2f}%) | Sharpe Ratio: {sharpe_ratio:.2f} | Profit Factor: {profit_factor:.2f}
 Total Volume ($): {total_volume:.2f} (fees: ${cum_fees_quote:.2f}) | Total Executors: {total_executors} (with Position: {total_executors_with_position}) | Accuracy: {accuracy:.2%}
 Total Long: {total_long} | Accuracy Long: {accuracy_long:.2%} | Total Short: {total_short} | Accuracy Short: {accuracy_short:.2%}
-Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop Loss: {stop_loss} | Time Limit: {time_limit} | Early Stop: {early_stop}
+Close Types: Take Profit: {take_profit} | Trailing Stop: {trailing_stop} | Stop Loss: {stop_loss} | Time Limit: {time_limit} | Expired: {expired} | Early Stop: {early_stop}
 =====================================================================================================================================
 """
 
@@ -662,7 +663,7 @@ class BacktestEngine(BacktestingEngineBase):
         active_executors: Dict[str, MockPositionExecutor] = {}
         stopped_executors_info: List[ExecutorInfo] = []
         
-        for i, row in market_data.iterrows():
+        for _, row in market_data.iterrows():
             current_timestamp = int(row["timestamp"])
             self.backtesting_data_provider.update_time(current_timestamp)
             
@@ -678,8 +679,9 @@ class BacktestEngine(BacktestingEngineBase):
                     del active_executors[executor_id]
                     stopped_executors_info.append(executor.executor_info)
             
+            # update the executors info for controller to determine the actions
             self.controller.executors_info = active_executors_info + stopped_executors_info
-            
+
             # 2. simulate the control task in controller
             # 2.1 update the processed data
             if len(controller_config.candles_config) > 0:
@@ -701,33 +703,41 @@ class BacktestEngine(BacktestingEngineBase):
                 if not isinstance(action, CreateExecutorAction):
                     continue
                 
-                if action.executor_config.level_id in stopped_level_ids:
-                    continue
+                # prevent create actions for current stopped level. continue determination on the next market data.
+                # if action.executor_config.level_id in stopped_level_ids:
+                #     continue
                 
                 executor_id = action.executor_config.id
-                position_execurtor = MockPositionExecutor(
+                executor = MockPositionExecutor(
                     config=action.executor_config,
                     market_data_provider=self.backtesting_data_provider,
                     trade_cost=trade_cost,
                     slippage=slippage
                 )
-                active_executors[executor_id] = position_execurtor
-                position_execurtor.on_market_data(row)
-            
+                active = executor.on_market_data(row)
+                
+                if active:
+                    active_executors[executor_id] = executor
+                    active_executors_info.append(executor.executor_info)
+                else:
+                    stopped_executors_info.append(executor.executor_info)
+                    
             # 2.2.2 process stop actions
             for action in actions:
                 if not isinstance(action, StopExecutorAction):
                     continue
+                
+                # inactive executor id will be deleted in dict so we need to make a copy of items
                 for executor_id, executor in list(active_executors.items()):
                     if not executor_id == action.executor_id:
                         continue
-                    executor.stop()
+                    executor.early_stop()
                     del active_executors[executor_id]
                     stopped_executors_info.append(executor.executor_info)
         
         # stop all active executors
         for executor_id, executor in list(active_executors.items()):
-            executor.stop()
+            executor.expired_stop()
             stopped_executors_info.append(executor.executor_info)
         
         self.controller.executors_info = stopped_executors_info
@@ -802,13 +812,14 @@ class ParamSpace:
         take_profit_space = np.arange(1, 8.1, 1)
         stop_loss_space = np.arange(2, 12.1, 1)
         # cooldown_time_space = [600, 900, 1800]
-        spread_space = [[2], [3], [4], [5]]
+        spread_space = [[3], [4], [5]]
         # trailing_stop_space = np.arange(0.015, 0.026, 0.005)
         # cci_threshold_space = [80]
         # length_space = np.arange(20, 41, 10)
         # natr_length_space = [7, 14, 21]
-        widen_space = [1, 2, 3]
-        narrow_space = [0.5, 1, 1.5]
+        widen_space = [2, 3]
+        narrow_space = [1.5]
+        max_stop_loss_space = np.arange(0.015, 0.031, 0.005)
         
         for executor_refresh_time in executor_refresh_time_space:
             for take_profit in take_profit_space:
@@ -821,26 +832,28 @@ class ParamSpace:
                         # for natr_length in natr_length_space:
                         for widen in widen_space:
                             for narrow in narrow_space:
-                                backtest_param = copy.deepcopy(base_backtest_param)
-                    
-                                config_dict = backtest_param.config_dict
-                                config_dict['executor_refresh_time'] = executor_refresh_time
-                                config_dict['take_profit'] = take_profit
-                                config_dict['stop_loss'] = stop_loss
-                                # config_dict['cooldown_time'] = cooldown_time
-                                config_dict['buy_spreads'] = spread
-                                config_dict['sell_spreads'] = spread
-                                # config_dict['trailing_stop']['activation_price'] = trailing_stop
-                                # config_dict['cci_threshold'] = cci_threshold
-                                # config_dict['sma_length'] = length
-                                # config_dict['cci_length'] = length
-                                # config_dict['natr_length'] = natr_length
-                                config_dict['widen_spread_multiplier'] = widen
-                                config_dict['narrow_spread_multiplier'] = narrow
-                                
-                                backtest_param.batch = batch
-                                backtest_params.append(backtest_param)
-                                batch += 1
+                                for max_stop_loss in max_stop_loss_space:
+                                    backtest_param = copy.deepcopy(base_backtest_param)
+                        
+                                    config_dict = backtest_param.config_dict
+                                    config_dict['executor_refresh_time'] = executor_refresh_time
+                                    config_dict['take_profit'] = take_profit
+                                    config_dict['stop_loss'] = stop_loss
+                                    # config_dict['cooldown_time'] = cooldown_time
+                                    config_dict['buy_spreads'] = spread
+                                    config_dict['sell_spreads'] = spread
+                                    # config_dict['trailing_stop']['activation_price'] = trailing_stop
+                                    # config_dict['cci_threshold'] = cci_threshold
+                                    # config_dict['sma_length'] = length
+                                    # config_dict['cci_length'] = length
+                                    # config_dict['natr_length'] = natr_length
+                                    config_dict['widen_spread_multiplier'] = widen
+                                    config_dict['narrow_spread_multiplier'] = narrow
+                                    config_dict['max_stop_loss'] = max_stop_loss
+                                    
+                                    backtest_param.batch = batch
+                                    backtest_params.append(backtest_param)
+                                    batch += 1
 
         return backtest_params
 
