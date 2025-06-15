@@ -184,9 +184,13 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
                 self.log_msg(f"Down trend => candle_close:{candle_close:.5f} < candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
                     f"candle_cci:{candle_cci:.1f} < threshold:{-self.config.cci_threshold:.1f}")
         
+        candle_natr = natr.iloc[-1]
+        self.log_msg(f'close:{candles_close.iloc[-1]:.5f}, high:{candles_high.iloc[-1]:.5f}, low:{candles_low.iloc[-1]:.5f}, '
+                     f'sma_short:{candle_sma_short:.5f}, sma:{candle_sma:.5f}, cci:{candle_cci:.1f}, natr:{candle_natr:.4%}, trend:{trend}')
+        
         self.processed_data.update(
             {
-                "natr": Decimal(natr.iloc[-1]),
+                "natr": Decimal(candle_natr),
                 "trend": trend
             }
         )
@@ -227,6 +231,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         else:
             return Decimal(0)
         
+        self.log_msg(f'reference_price:{reference_price:.7f}, close:{last_close:.7f}, mid:{last_mid:.7f}, high:{last_high:.7f}, low:{last_low:.7f}')
         self.processed_data["reference_price"] = reference_price
         return reference_price
 
