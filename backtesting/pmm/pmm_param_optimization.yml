@@ -28,6 +28,7 @@ trailing_stop:
 sleep_interval: 1
 update_interval: 5
 candle_interval: 1m
+reference_price_type: mid
 sma_short_length: 10
 sma_length: 30
 cci_length: 30
