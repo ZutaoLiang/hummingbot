@@ -86,15 +86,16 @@ class PMMTrendingAdaptiveV6ControllerConfig(MarketMakingControllerConfigBase):
         default="0",
         json_schema_extra={
             "prompt": "Enter the decrease trailing stop interval seconds(0): ",
-            "prompt_on_new": True})
+            "prompt_on_new": True,
+            "is_updatable": True})
     refresh_time_align: bool = Field(
         default=True, json_schema_extra={"is_updatable": True})
     trade_cost: float = Field(
         default=0.0002,
-        json_schema_extra={"prompt": "Enter the trade cost(0.0002): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the trade cost(0.0002): ", "prompt_on_new": True, "is_updatable": True})
     max_stop_loss: float = Field(
         default=0.025,
-        json_schema_extra={"prompt": "Enter the max stop loss(0.025): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the max stop loss(0.025): ", "prompt_on_new": True, "is_updatable": True})
 
 
 class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
