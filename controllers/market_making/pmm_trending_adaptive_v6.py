@@ -100,8 +100,6 @@ class PMMTrendingAdaptiveV6ControllerConfig(MarketMakingControllerConfigBase):
 
 class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
     def __init__(self, config: PMMTrendingAdaptiveV6ControllerConfig, *args, **kwargs):
-        self.config = config
-        
         # for candles config
         self.max_records = int(max(config.sma_length, config.cci_length, config.natr_length) * 3)
         
@@ -119,12 +117,13 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
             max_records=self.max_records
         )
         
+        self.config = config
         if len(self.config.candles_config) == 0:
             self.config.candles_config = []
         
         self.config.candles_config.extend([self.default_candles_config, self.reference_candles_config])
-            
-        super().__init__(config, update_interval=self.config.sleep_interval, *args, **kwargs)
+        
+        super().__init__(self.config, update_interval=self.config.sleep_interval, *args, **kwargs)
         self.update_data_interval = self.config.update_interval
         self.last_update_data_time = self.market_data_provider.time() - self.update_data_interval - 10
         self.last_candle_timestamp = 0
@@ -337,7 +336,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         
         current_timestamp = self.market_data_provider.time()
         current_minute = datetime.fromtimestamp(current_timestamp).minute
-        candle_seconds = CandlesBase.interval_to_seconds[self.config.candles_config[0].interval]
+        candle_seconds = CandlesBase.interval_to_seconds[self.reference_candles_config.interval]
         prevent_reentry_close_types = [CloseType.TAKE_PROFIT, CloseType.STOP_LOSS, CloseType.TRAILING_STOP]
         working_levels = self.filter_executors(
             executors=self.executors_info,
