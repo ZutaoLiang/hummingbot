@@ -157,7 +157,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         
         if not pmm_common.BACKTESTING:
             # in live trading, the last candle is still being processed, so we move to the previous candle
-            candle_close = candles_close[:-1]
+            candles_close = candles_close[:-1]
             candles_high = candles_high[:-1]
             candles_low = candles_low[:-1]
         
