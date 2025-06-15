@@ -185,8 +185,8 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
                     f"candle_cci:{candle_cci:.1f} < threshold:{-self.config.cci_threshold:.1f}")
         
         candle_natr = natr.iloc[-1]
-        self.log_msg(f'close:{candles_close.iloc[-1]:.5f}, high:{candles_high.iloc[-1]:.5f}, low:{candles_low.iloc[-1]:.5f}, '
-                     f'sma_short:{candle_sma_short:.5f}, sma:{candle_sma:.5f}, cci:{candle_cci:.1f}, natr:{candle_natr:.4%}, trend:{trend}')
+        self.log_msg(f'close:{candles_close.iloc[-1]:.7f}, high:{candles_high.iloc[-1]:.7f}, low:{candles_low.iloc[-1]:.7f}, '
+                     f'sma_short:{candle_sma_short:.7f}, sma:{candle_sma:.7f}, cci:{candle_cci:.2f}, natr:{candle_natr:.4%}, trend:{trend}')
         
         self.processed_data.update(
             {
