@@ -42,46 +42,46 @@ class PMMTrendingAdaptiveV6ControllerConfig(MarketMakingControllerConfigBase):
         default="3",
         json_schema_extra={
             "prompt": "Enter the sleep interval seconds(3): ",
-            "prompt_on_new": True})
+            "prompt_on_new": True, "is_updatable": True})
     update_interval: int = Field(
         default="180",
         json_schema_extra={
             "prompt": "Enter the update data interval seconds(180): ",
-            "prompt_on_new": True})
+            "prompt_on_new": True, "is_updatable": True})
     candle_interval: str = Field(
         default="15m",
         json_schema_extra={
             "prompt": "Enter the candle interval (e.g., 1m, 5m, 1h, 1d): ",
-            "prompt_on_new": True})
+            "prompt_on_new": True, "is_updatable": True})
     reference_price_type: str = Field(
         default="mid",
         json_schema_extra={
             "prompt": "Enter the reference price type(mid/close): ",
-            "prompt_on_new": True})
+            "prompt_on_new": True, "is_updatable": True})
     sma_short_length: int = Field(
         default=10,
-        json_schema_extra={"prompt": "Enter the SMA short length(10): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the SMA short length(10): ", "prompt_on_new": True, "is_updatable": True})
     sma_length: int = Field(
         default=30,
-        json_schema_extra={"prompt": "Enter the SMA length(30): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the SMA length(30): ", "prompt_on_new": True, "is_updatable": True})
     cci_length: int = Field(
         default=30,
-        json_schema_extra={"prompt": "Enter the CCI length(30): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the CCI length(30): ", "prompt_on_new": True, "is_updatable": True})
     cci_threshold: int = Field(
         default=60,
-        json_schema_extra={"prompt": "Enter the CCI threshold(60): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the CCI threshold(60): ", "prompt_on_new": True, "is_updatable": True})
     natr_length: int = Field(
         default=14,
-        json_schema_extra={"prompt": "Enter the NATR length(14): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the NATR length(14): ", "prompt_on_new": True, "is_updatable": True})
     widen_spread_multiplier: float = Field(
         default=3,
-        json_schema_extra={"prompt": "Enter the widen spread multiplier(3): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the widen spread multiplier(3): ", "prompt_on_new": True, "is_updatable": True})
     narrow_spread_multiplier: float = Field(
         default=0.6,
-        json_schema_extra={"prompt": "Enter the narrow spread multiplier(0.5): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the narrow spread multiplier(0.5): ", "prompt_on_new": True, "is_updatable": True})
     early_stop_activation_price_min: float = Field(
         default=0.008,
-        json_schema_extra={"prompt": "Enter the min trailing stop activation (0.008): ", "prompt_on_new": True})
+        json_schema_extra={"prompt": "Enter the min trailing stop activation (0.008): ", "prompt_on_new": True, "is_updatable": True})
     early_stop_decrease_interval: int = Field(
         default="0",
         json_schema_extra={
