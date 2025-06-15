@@ -20,8 +20,11 @@ from plotly.subplots import make_subplots
 
 import socket
 import socks
-socks.set_default_proxy(socks.SOCKS5, "127.0.0.1", 10810)
+from backtesting import backtest_utils
+socks.set_default_proxy(socks.SOCKS5, backtest_utils.SOCKS_RPOXY_IP, backtest_utils.SOCKS_PROXY_PORT)
 socket.socket = socks.socksocket
+
+from backtesting import download_market_data
 
 import asyncio
 from concurrent.futures import ProcessPoolExecutor
@@ -561,9 +564,9 @@ class BacktestEngine(BacktestingEngineBase):
             print(backtest_result.get_results_summary(None, f"[Batch-{self.batch}(time:{int(time.time() - t)}s)]. "))
         except Exception as e:
             print(f"Error during backtest {self.batch}: {e}")
-            if self.print_detail:
-                import traceback
-                traceback.print_exc()
+            # if self.print_detail:
+            import traceback
+            traceback.print_exc()
         return backtest_result
     
     async def do_backtest_v1(self,
@@ -636,6 +639,147 @@ class BacktestEngine(BacktestingEngineBase):
         }  
 
     async def do_backtest(self,
+                          controller_config: ControllerConfigBase,
+                          start: int, end: int,
+                          executor_refresh_time: int,
+                          backtesting_resolution: str = "1m",
+                          trade_cost=0.0006, slippage: float=0.001):
+        t = time.time()
+        self.backtesting_data_provider.update_backtesting_time(start, end)
+        await self.backtesting_data_provider.initialize_trading_rules(controller_config.connector_name)
+        
+        controller_class = controller_config.get_controller_class()
+        self.controller = controller_class(config=controller_config, market_data_provider=self.backtesting_data_provider, actions_queue=None)
+        
+        self.backtesting_resolution = controller_config.candle_interval
+        await self.initialize_backtesting_data_provider()
+        
+        self.prepare_market_data()
+        # processed_data will be recreated by MarketMakingControllerBase.update_processed_data() if not implemented by sub-class, so we keep it for backtest result
+        processed_data_features = self.controller.processed_data["features"]
+        
+        if self.print_detail:
+            print(f'[Batch-{self.batch}] Prepare market data:{int(time.time() - t)}s')
+        t = time.time()
+        
+        active_executors: Dict[str, MockPositionExecutor] = {}
+        stopped_executors_info: List[ExecutorInfo] = []
+        
+        connector_name = controller_config.connector_name
+        trading_pair = controller_config.trading_pair
+        trades_df = download_market_data.CCXTDownloader(exchange_id=connector_name, base_dir=self.base_dir).fetch_trades(trading_pair, start, end)
+        
+        for _, row in trades_df.iterrows():
+            current_timestamp = int(row["timestamp"])
+            if current_timestamp < start:
+                continue
+            
+            self.backtesting_data_provider.update_time(current_timestamp)
+            self.backtesting_data_provider.update_price(connector_name, trading_pair, row['price'])
+            
+            # stopped_level_ids: List[str] = []
+            
+            # 0. refresh executors
+            # update the executors info for controller to refresh
+            self.controller.executors_info = [e.executor_info for e in active_executors.values()] + stopped_executors_info
+            refresh_actions = self.controller.executors_to_refresh()
+            for refresh_action in refresh_actions:
+                if not isinstance(refresh_action, StopExecutorAction):
+                    continue
+                
+                # inactive executor id will be deleted in dict so we need to make a copy of items
+                for executor_id, executor in list(active_executors.items()):
+                    if not executor_id == refresh_action.executor_id:
+                        continue
+                    executor.early_stop()
+                    del active_executors[executor_id]
+                    stopped_executors_info.append(executor.executor_info)
+
+            # 1. simulate the control task in position executor
+            for executor_id, executor in list(active_executors.items()):
+                active = executor.on_trade()
+                if not active:
+                    # stopped_level_ids.append(executor.config.level_id)
+                    del active_executors[executor_id]
+                    stopped_executors_info.append(executor.executor_info)
+            
+            # update the executors info for controller to determine the actions
+            self.controller.executors_info = [e.executor_info for e in active_executors.values()] + stopped_executors_info
+
+            # 2. simulate the control task in controller
+            # 2.1 update the processed data
+            if len(controller_config.candles_config) > 0:
+                candle_seconds = CandlesBase.interval_to_seconds[controller_config.candles_config[0].interval]
+                current_start = start - (100 * candle_seconds)
+                current_end = current_timestamp - candle_seconds
+                self.backtesting_data_provider.update_start_end_time(current_start, current_end)
+            
+            await self.controller.update_processed_data()
+            
+            # 2.2 determine the actions
+            actions = self.controller.determine_executor_actions()
+            
+            # 2.2.1 process create actions
+            for refresh_action in actions:
+                if not isinstance(refresh_action, CreateExecutorAction):
+                    continue
+                
+                # # prevent create actions for current stopped level. continue determination on the next market data.
+                # if action.executor_config.level_id in stopped_level_ids:
+                #     continue
+                
+                executor_id = refresh_action.executor_config.id
+                executor = MockPositionExecutor(
+                    config=refresh_action.executor_config,
+                    market_data_provider=self.backtesting_data_provider,
+                    trade_cost=trade_cost,
+                    slippage=slippage
+                )
+                active = executor.on_trade()
+                
+                if active:
+                    active_executors[executor_id] = executor
+                else:
+                    stopped_executors_info.append(executor.executor_info)
+                    
+            # 2.2.2 process stop actions
+            for refresh_action in actions:
+                if not isinstance(refresh_action, StopExecutorAction):
+                    continue
+                
+                # inactive executor id will be deleted in dict so we need to make a copy of items
+                for executor_id, executor in list(active_executors.items()):
+                    if not executor_id == refresh_action.executor_id:
+                        continue
+                    executor.early_stop()
+                    del active_executors[executor_id]
+                    stopped_executors_info.append(executor.executor_info)
+        
+        # stop all active executors
+        for executor_id, executor in list(active_executors.items()):
+            executor.expired_stop()
+            stopped_executors_info.append(executor.executor_info)
+        
+        self.controller.executors_info = stopped_executors_info
+        
+        if self.print_detail:
+            print(f'[Batch-{self.batch}] Simulation:{int(time.time() - t)}s')
+        t = time.time()
+        
+        results = self.summarize_results(self.controller.executors_info, controller_config.total_amount_quote)
+        
+        if self.print_detail:
+            print(f'[Batch-{self.batch}] Summraize results:{int(time.time() - t)}s')
+        
+        self.controller.processed_data['features'] = processed_data_features
+        
+        return {
+            "executors": self.controller.executors_info,
+            "results": results,
+            "processed_data": self.controller.processed_data,
+        }
+
+    async def do_backtest_v2(self,
                           controller_config: ControllerConfigBase,
                           start: int, end: int,
                           executor_refresh_time: int,
@@ -821,18 +965,18 @@ class ParamSpace:
         backtest_params = []
         batch = 1
         
-        executor_refresh_time_space = [59, 119, 179, 239]
-        take_profit_space = np.arange(1, 8.1, 1)
-        stop_loss_space = np.arange(2, 12.1, 1)
+        executor_refresh_time_space = [59]
+        take_profit_space = np.arange(2, 8.1, 1)
+        stop_loss_space = np.arange(4, 12.1, 1)
         # cooldown_time_space = [600, 900, 1800]
-        spread_space = [[3], [4], [5]]
+        spread_space = [[2], [3], [4], [5]]
         # trailing_stop_space = np.arange(0.015, 0.026, 0.005)
         # cci_threshold_space = [80]
         # length_space = np.arange(20, 41, 10)
         # natr_length_space = [7, 14, 21]
         widen_space = [2, 3]
-        narrow_space = [1.5]
-        max_stop_loss_space = np.arange(0.015, 0.031, 0.005)
+        narrow_space = [1, 1.5]
+        max_stop_loss_space = np.arange(0.02, 0.036, 0.005)
         
         for executor_refresh_time in executor_refresh_time_space:
             for take_profit in take_profit_space:
@@ -926,7 +1070,7 @@ class ParamOptimization:
             
             pd.set_option('display.max_columns', None)
             result_df = pd.DataFrame(rows).sort_values("net_pnl", ascending=False)
-            result_df_cols = ['net_pnl','net_pnl_quote','total_volume','cum_fees_quote','sharpe_ratio','profit_factor','total_executors_with_position','accuracy','accuracy_long','accuracy_short','max_drawdown_usd','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','trade_cost','slippage','total_amount_quote','total_executors','total_long','total_short','total_positions','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','position_mode','take_profit_order_type']
+            result_df_cols = ['net_pnl','net_pnl_quote','total_volume','cum_fees_quote','sharpe_ratio','profit_factor','total_executors_with_position','accuracy','accuracy_long','accuracy_short','max_drawdown_usd','max_drawdown_pct','buy_spreads','sell_spreads','executor_refresh_time','stop_loss','max_stop_loss','take_profit','trailing_stop','sma_short_length','sma_length','cci_length','cci_threshold','natr_length','widen_spread_multiplier','narrow_spread_multiplier','cooldown_time','trade_cost','slippage','total_amount_quote','total_executors','total_long','total_short','total_positions','win_signals','loss_signals','buy_amounts_pct','sell_amounts_pct','sleep_interval','time_limit','update_interval','candle_interval','candles_config','connector_name','controller_name','trading_pair','controller_type','id','leverage','manual_kill_switch','position_mode','take_profit_order_type']
             result_df = result_df[result_df_cols]
             result_df.to_csv(os.path.join(result_dir, result_file), index=False)
             
@@ -962,4 +1106,3 @@ class ParamOptimization:
         finally:
             loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(loop), return_exceptions=True))
             loop.close()
- 

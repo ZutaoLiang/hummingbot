@@ -26,7 +26,6 @@ from controllers.market_making import pmm_common
 
 class PMMTrendingAdaptiveV6ControllerConfig(MarketMakingControllerConfigBase):
     controller_name: str = "pmm_trending_adaptive_v6"
-    candles_config: List[CandlesConfig] = []
     buy_spreads: List[float] = Field(
         default="1,2,4",
         json_schema_extra={
@@ -53,6 +52,11 @@ class PMMTrendingAdaptiveV6ControllerConfig(MarketMakingControllerConfigBase):
         default="15m",
         json_schema_extra={
             "prompt": "Enter the candle interval (e.g., 1m, 5m, 1h, 1d): ",
+            "prompt_on_new": True})
+    reference_price_type: str = Field(
+        default="mid",
+        json_schema_extra={
+            "prompt": "Enter the reference price type(mid/close): ",
             "prompt_on_new": True})
     sma_short_length: int = Field(
         default=10,
@@ -96,14 +100,29 @@ class PMMTrendingAdaptiveV6ControllerConfig(MarketMakingControllerConfigBase):
 class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
     def __init__(self, config: PMMTrendingAdaptiveV6ControllerConfig, *args, **kwargs):
         self.config = config
+        
+        # for candles config
         self.max_records = int(max(config.sma_length, config.cci_length, config.natr_length) * 3)
+        
+        self.default_candles_config = CandlesConfig(
+            connector=config.connector_name,
+            trading_pair=config.trading_pair,
+            interval=config.candle_interval,
+            max_records=self.max_records
+        )
+        
+        self.reference_candles_config = CandlesConfig(
+            connector=config.connector_name,
+            trading_pair=config.trading_pair,
+            interval='1m',
+            max_records=self.max_records
+        )
+        
         if len(self.config.candles_config) == 0:
-            self.config.candles_config = [CandlesConfig(
-                connector=config.connector_name,
-                trading_pair=config.trading_pair,
-                interval=config.candle_interval,
-                max_records=self.max_records
-            )]
+            self.config.candles_config = []
+        
+        self.config.candles_config.extend([self.default_candles_config, self.reference_candles_config])
+            
         super().__init__(config, update_interval=self.config.sleep_interval, *args, **kwargs)
         self.update_data_interval = self.config.update_interval
         self.last_update_data_time = self.market_data_provider.time() - self.update_data_interval - 10
@@ -132,13 +151,23 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         else:
             return
         
-        sma_short = pta.sma(candles["close"], length=self.config.sma_short_length, talib=talib_available)
-        sma = pta.sma(candles["close"], length=self.config.sma_length, talib=talib_available)
-        cci = pta.cci(candles["high"], candles["low"], candles["close"], length=self.config.cci_length, talib=talib_available)
-        natr = pta.natr(candles["high"], candles["low"], candles["close"], length=self.config.natr_length, talib=talib_available) / 100
+        candles_close = candles['close']
+        candles_high = candles['high']
+        candles_low = candles['low']
+        
+        if not pmm_common.BACKTESTING:
+            # in live trading, the last candle is still being processed, so we move to the previous candle
+            candle_close = candles_close[:-1]
+            candles_high = candles_high[:-1]
+            candles_low = candles_low[:-1]
+        
+        sma_short = pta.sma(candles_close, length=self.config.sma_short_length, talib=talib_available)
+        sma = pta.sma(candles_close, length=self.config.sma_length, talib=talib_available)
+        cci = pta.cci(candles_high, candles_low, candles_close, length=self.config.cci_length, talib=talib_available)
+        natr = pta.natr(candles_high, candles_low, candles_close, length=self.config.natr_length, talib=talib_available) / 100
         # adx = pta.adx(candles["high"], candles["low"], candles["close"], length=self.config.adx_length)
         
-        candle_close = candles["close"].iloc[-1]
+        candle_close = candles_close.iloc[-1]
         candle_sma_short = sma_short.iloc[-1]
         candle_sma = sma.iloc[-1]
         candle_cci = cci.iloc[-1]
@@ -155,15 +184,8 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
                 self.log_msg(f"Down trend => candle_close:{candle_close:.5f} < candle_sma_short:{candle_sma_short:.5f} and candle_sma:{candle_sma:.5f}, " \
                     f"candle_cci:{candle_cci:.1f} < threshold:{-self.config.cci_threshold:.1f}")
         
-        # should always use 1m candles
-        last_high = candles["high"].iloc[-1]
-        last_low = candles["low"].iloc[-1]
-        reference_price = (last_high + last_low) / 2
-        # reference_price = self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, PriceType.MidPrice)
-        
         self.processed_data.update(
             {
-                "reference_price": Decimal(reference_price),
                 "natr": Decimal(natr.iloc[-1]),
                 "trend": trend
             }
@@ -177,6 +199,37 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         #     self.log_msg(f"{bid.head(10)}")
         #     self.log_msg(f"{ask.head(10)}")
 
+    def calc_last_index(self) -> int:
+        if pmm_common.BACKTESTING:
+            last_index = -1
+        else:
+            # in live trading, the last candle is still being processed, so we move to the previous candle
+            last_index = -2
+        return last_index
+    
+    def calc_refrence_price(self) -> Decimal:
+        reference_candles = self.market_data_provider.get_candles_df(connector_name=self.reference_candles_config.connector,
+                                            trading_pair=self.reference_candles_config.trading_pair,
+                                            interval=self.reference_candles_config.interval,
+                                            max_records=self.reference_candles_config.max_records)
+        last_index = self.calc_last_index()
+            
+        # last_open = reference_candles["open"].iloc[last_index]
+        last_high = reference_candles["high"].iloc[last_index]
+        last_low = reference_candles["low"].iloc[last_index]
+        last_close = reference_candles["close"].iloc[last_index]
+        last_mid = (last_high + last_low) / 2
+        
+        if self.config.reference_price_type == 'close':
+            reference_price = Decimal(last_close)
+        elif self.config.reference_price_type == 'mid':
+            reference_price = Decimal(last_mid)
+        else:
+            return Decimal(0)
+        
+        self.processed_data["reference_price"] = reference_price
+        return reference_price
+
     def get_price_and_amount(self, level_id: str) -> Tuple[Decimal, Decimal]:
         """
         Get the spread and amount in quote for a given level id.
@@ -184,7 +237,10 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
         level = self.get_level_from_level_id(level_id)
         trade_type = self.get_trade_type_from_level_id(level_id)
         spreads, amounts_quote = self.config.get_spreads_and_amounts_in_quote(trade_type)
-        reference_price = Decimal(self.processed_data["reference_price"])
+        reference_price = self.calc_refrence_price()
+        if reference_price == 0:
+            return 0, 0
+        
         base_spread_multiplier = Decimal(self.processed_data["natr"])
         spread_in_pct = Decimal(spreads[int(level)]) * base_spread_multiplier
         
@@ -299,7 +355,7 @@ class PMMTrendingAdaptiveV6Controller(MarketMakingControllerBase):
             return executors_to_early_stop
             
         # make the order placing time align to the backtest time
-        if self.config.refresh_time_align and not pmm_common.BACKTESTING and self.time_align_refreshable:
+        if self.config.refresh_time_align and self.time_align_refreshable:
             current_timestamp = self.market_data_provider.time()
             current_second = datetime.fromtimestamp(current_timestamp).second
             if current_second < 5:

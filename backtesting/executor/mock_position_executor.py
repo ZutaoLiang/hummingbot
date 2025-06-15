@@ -402,6 +402,20 @@ class MockPositionExecutor(PositionExecutor):
     def get_market_price(self, price_type = PriceType.MidPrice):
         return self.market_data_provider.get_price_by_type(self.config.connector_name, self.config.trading_pair, price_type)
     
+    def on_trade(self) -> bool:
+        self.control_open_order()
+        
+        if self.determine_filled(self._open_order):
+            self.entry_timestamp = self.current_time()
+            
+        self.control_barriers()
+        
+        if self.status == RunnableStatus.SHUTTING_DOWN:
+            super().stop()
+            return False
+        
+        return True
+    
     def on_market_data(self, market_data) -> bool:
         """ test on market data
 

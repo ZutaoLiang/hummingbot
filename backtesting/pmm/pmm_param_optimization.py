@@ -22,8 +22,11 @@ pmm_common.BACKTESTING = True
 
 
 if __name__ == '__main__':
-    start_date = datetime(2025, 6, 1)
-    end_date = datetime(2025, 6, 8)
+    # start_date = datetime(2025, 6, 1)
+    # end_date = datetime(2025, 6, 8)
+    
+    start_date = datetime(2025, 6, 14, 8, 0)
+    end_date = datetime(2025, 6, 14, 21, 30)
 
     config_file = 'pmm_param_optimization.yml'
 
